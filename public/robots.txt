@@ -1,0 +1,38 @@
+User-agent: Googlebot
+Disallow: /admin
+Disallow: /profile
+Disallow: /settings
+Disallow: /liked
+Disallow: /delete-account
+Disallow: /api/
+Allow: /
+
+User-agent: Googlebot-News
+Disallow: /admin
+Disallow: /profile
+Disallow: /settings
+Disallow: /liked
+Disallow: /delete-account
+Disallow: /api/
+Allow: /
+
+User-agent: Mediapartners-Google
+Disallow: /admin
+Disallow: /profile
+Disallow: /settings
+Disallow: /liked
+Disallow: /delete-account
+Disallow: /api/
+Allow: /
+
+User-agent: *
+Disallow: /admin
+Disallow: /profile
+Disallow: /settings
+Disallow: /liked
+Disallow: /delete-account
+Disallow: /api/
+Allow: /
+
+Sitemap: https://www.currentnews.blog/sitemap.xml
+

@@ -1,0 +1,198 @@
+import type { Request, Response } from 'express';
+
+export default async function handler(req: Request, res: Response) {
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    return res.status(405).send('Method Not Allowed');
+  }
+
+  res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, s-maxage=3600, stale-while-revalidate=59');
+
+  if (req.method === 'HEAD') {
+    return res.status(200).end();
+  }
+
+  try {
+    const protocol = req.headers['x-forwarded-proto'] || 'https';
+    // Always prefer the canonical domain with www to avoid redirect loops
+    const host = req.headers.host || 'www.currentnews.blog';
+    const siteUrl = `${protocol}://${host.includes('localhost') ? host : 'www.currentnews.blog'}`;
+
+    // Configuration for Firestore REST API
+    const config = {
+      projectId: "gen-lang-client-0638643565",
+      firestoreDatabaseId: "ai-studio-6e2ba5e1-c245-4586-90fd-9ba4777b81c4"
+    };
+
+    const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${config.projectId}/databases/${config.firestoreDatabaseId}/documents:runQuery`;
+
+    const queryBody = {
+      structuredQuery: {
+        from: [{ collectionId: "posts" }],
+        orderBy: [{ field: { fieldPath: "createdAt" }, direction: "DESCENDING" }]
+      }
+    };
+
+    let items: any[] = [];
+    try {
+      const response = await fetch(firestoreUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(queryBody)
+      });
+
+      if (response.ok) {
+        const queryResult = await response.json();
+        const parseFirestoreFields = (fields: any) => {
+          const result: any = {};
+          if (!fields) return result;
+          for (const key of Object.keys(fields)) {
+            const valObj = fields[key];
+            if ('stringValue' in valObj) {
+              result[key] = valObj.stringValue;
+            } else if ('timestampValue' in valObj) {
+              result[key] = valObj.timestampValue;
+            } else if ('integerValue' in valObj) {
+              result[key] = parseInt(valObj.integerValue, 10);
+            } else if ('booleanValue' in valObj) {
+              result[key] = valObj.booleanValue;
+            }
+          }
+          return result;
+        };
+
+        if (Array.isArray(queryResult)) {
+          for (const item of queryResult) {
+            if (item.document) {
+              const fields = parseFirestoreFields(item.document.fields);
+              const id = item.document.name.split("/").pop();
+              // Only include published posts
+              if (!fields.status || fields.status === 'published') {
+                items.push({ id, ...fields });
+              }
+            }
+          }
+        }
+      }
+    } catch (fetchErr) {
+      console.warn('Failed to fetch posts for sitemap from Firestore REST, using fallback:', fetchErr);
+    }
+
+    const escapeXml = (unsafe: string) => {
+      return (unsafe || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+    };
+
+    const slugify = (text: string) => {
+      return text
+        .toString()
+        .toLowerCase()
+        .trim()
+        .replace(/\s+/g, '-')
+        .replace(/[^\w-]+/g, '')
+        .replace(/--+/g, '-')
+        .replace(/^-+/, '')
+        .replace(/-+$/, '');
+    };
+
+    const todayIso = new Date().toISOString().split('T')[0];
+
+    let xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">
+  <url>
+    <loc>${siteUrl}/</loc>
+    <lastmod>${todayIso}</lastmod>
+    <changefreq>always</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>${siteUrl}/?category=Jharkhand</loc>
+    <lastmod>${todayIso}</lastmod>
+    <changefreq>always</changefreq>
+    <priority>0.95</priority>
+  </url>
+  <url>
+    <loc>${siteUrl}/about</loc>
+    <lastmod>${todayIso}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>${siteUrl}/editorial-policy</loc>
+    <lastmod>${todayIso}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>${siteUrl}/contact</loc>
+    <lastmod>${todayIso}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>${siteUrl}/privacy</loc>
+    <lastmod>${todayIso}</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>${siteUrl}/terms</loc>
+    <lastmod>${todayIso}</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+`;
+
+    for (const post of items) {
+      const slug = slugify(post.title || '');
+      const postUrl = slug ? `${siteUrl}/post/${post.id}/${slug}` : `${siteUrl}/post/${post.id}`;
+      let lastmod = todayIso;
+      let pubDateIso = new Date().toISOString();
+      if (post.updatedAt || post.createdAt) {
+        try {
+          const d = new Date(post.updatedAt || post.createdAt);
+          if (!isNaN(d.getTime())) {
+            lastmod = d.toISOString().split('T')[0];
+            pubDateIso = d.toISOString();
+          }
+        } catch {
+          // fallback
+        }
+      }
+
+      const isJharkhand = /jharkhand|ranchi|dhanbad|jamshedpur|bokaro|deoghar/i.test(`${post.title} ${post.category || ''} ${post.content || ''}`);
+      const newsKeywords = isJharkhand
+        ? 'news near Jharkhand, Jharkhand news, Ranchi news, India news'
+        : 'breaking news, current news, live reporting';
+
+      xml += `  <url>
+    <loc>${escapeXml(postUrl)}</loc>
+    <lastmod>${lastmod}</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.9</priority>
+    <news:news>
+      <news:publication>
+        <news:name>Current News Live</news:name>
+        <news:language>en</news:language>
+      </news:publication>
+      <news:publication_date>${pubDateIso}</news:publication_date>
+      <news:title>${escapeXml(post.title || 'Breaking Dispatch')}</news:title>
+      <news:keywords>${escapeXml(newsKeywords)}</news:keywords>
+    </news:news>
+  </url>
+`;
+    }
+
+    xml += `</urlset>`;
+
+    return res.status(200).send(xml);
+  } catch (err: any) {
+    console.error('Sitemap generation error:', err);
+    res.setHeader('Content-Type', 'text/plain');
+    return res.status(500).send(`Unable to generate sitemap: ${err.message}`);
+  }
+}

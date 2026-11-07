@@ -1,0 +1,1224 @@
+@import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-baloo: "Baloo 2", "Baloo", cursive, system-ui, sans-serif;
+}
+
+.font-baloo {
+  font-family: "Baloo 2", "Baloo", cursive, system-ui, sans-serif;
+}
+
+/* Liquid button animations & pill physics */
+@keyframes liquidWave {
+  0% {
+    transform: scale(0.95);
+    filter: brightness(1.15);
+  }
+  50% {
+    transform: scale(1.03);
+    filter: brightness(1.05);
+  }
+  100% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+}
+
+.liquid-tab-active {
+  animation: liquidWave 320ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+@keyframes liquidShimmer {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.liquid-pill-gradient {
+  background: linear-gradient(135deg, #2563eb, #6366f1, #8b5cf6, #ec4899);
+  background-size: 250% 250%;
+  animation: liquidShimmer 8s ease infinite;
+}
+
+.dark .liquid-pill-gradient {
+  background: linear-gradient(135deg, #3b82f6, #6366f1, #a855f7, #ec4899);
+  background-size: 250% 250%;
+  animation: liquidShimmer 8s ease infinite;
+}
+
+/* Custom modern transitions and scrollbars */
+body {
+  font-family: var(--font-sans);
+  background-color: #ffffff;
+  color: #0f172a;
+}
+
+html.dark body {
+  background-color: #020617;
+  color: #f8fafc;
+}
+
+/* Hide side and horizontal scrollbars globally across all browsers, while keeping full scrolling functionality */
+html,
+body,
+#root,
+#app-root-container {
+  -ms-overflow-style: none !important; /* IE and Edge */
+  scrollbar-width: none !important; /* Firefox */
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar,
+#root::-webkit-scrollbar,
+#app-root-container::-webkit-scrollbar,
+*::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
+}
+
+/* Hide horizontal scroll indicators, scroll bars, and scroll buttons across all devices & browsers */
+.no-scrollbar::-webkit-scrollbar,
+#category-filter-header ::-webkit-scrollbar,
+#category-filter-tabs::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+.no-scrollbar,
+#category-filter-header,
+#category-filter-tabs {
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
+}
+
+/* Highlight style for custom rich text */
+.article-rich-text h1, .article-rich-text h2, .article-rich-text h3 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: #0f172a;
+  margin-top: 1.25rem;
+  margin-bottom: 0.25rem; /* Drastically reduced to prevent unappealing gap below titles */
+}
+
+.article-rich-text h1 { font-size: 1.875rem; line-height: 2.25rem; }
+.article-rich-text h2 { font-size: 1.5rem; line-height: 2rem; }
+.article-rich-text h3 { font-size: 1.25rem; line-height: 1.75rem; }
+
+.article-rich-text p {
+  margin-bottom: 0.6rem; /* Tighter spacing for professional, book-like newspaper layout */
+  line-height: 1.7;
+  color: #334155;
+  font-size: 1.125rem;
+}
+
+/* Custom styling for paragraphs that are formatted purely as bold text (common subheaders in Quill editor) */
+.article-rich-text p:has(> strong:only-child) {
+  margin-top: 0.75rem;
+  margin-bottom: 0.25rem; /* Zero-gap flow for consecutive lines of headings & custom strong sub-headers */
+}
+
+.article-rich-text ul {
+  list-style-type: disc;
+  padding-left: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.article-rich-text ol {
+  list-style-type: decimal;
+  padding-left: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.article-rich-text li {
+  margin-bottom: 0.4rem;
+  line-height: 1.6;
+  color: #334155;
+}
+
+.article-rich-text strong {
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.article-rich-text em {
+  font-style: italic;
+}
+
+.article-rich-text blockquote {
+  border-left: 4px solid #6366f1; /* Premium Indigo left border line */
+  background-color: #f8fafc; /* Subtly raised light-gray-blue block container background */
+  padding: 0.75rem 1.25rem;
+  margin: 1.25rem 0;
+  font-style: italic;
+  font-size: 1.1rem;
+  line-height: 1.6;
+  color: #475569;
+  border-radius: 0 0.5rem 0.5rem 0;
+}
+
+html.dark .article-rich-text blockquote {
+  border-left-color: #818cf8;
+  background-color: #1e293b !important;
+  color: #94a3b8 !important;
+}
+
+.newspaper-paper .article-rich-text blockquote,
+html.dark .newspaper-paper .article-rich-text blockquote {
+  border-left-color: #d97706 !important; /* Elegant warm Amber border for the classic newspaper print */
+  background-color: #f3eedd !important; /* Authentic matching warmer cream highlight block */
+  color: #44403c !important; /* Muted warm stone print ink color */
+}
+
+/* Quill Editor custom styling to match our theme */
+.quill {
+  background-color: white;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  border: 1px solid #cbd5e1;
+}
+
+html.dark .quill {
+  background-color: #020617;
+  border-color: #334155;
+}
+
+.ql-toolbar.ql-snow {
+  border-top: none !important;
+  border-left: none !important;
+  border-right: none !important;
+  border-bottom: 1px solid #cbd5e1 !important;
+  background-color: #f1f5f9;
+}
+
+html.dark .ql-toolbar.ql-snow {
+  background-color: #0f172a !important;
+  border-bottom: 1px solid #334155 !important;
+}
+
+html.dark .ql-toolbar.ql-snow .ql-stroke {
+  stroke: #cbd5e1 !important;
+}
+
+html.dark .ql-toolbar.ql-snow .ql-fill {
+  fill: #cbd5e1 !important;
+}
+
+html.dark .ql-toolbar.ql-snow .ql-picker {
+  color: #cbd5e1 !important;
+}
+
+html.dark .ql-toolbar.ql-snow .ql-picker-options {
+  background-color: #0f172a !important;
+  border-color: #334155 !important;
+  color: #cbd5e1 !important;
+}
+
+.ql-container.ql-snow {
+  border: none !important;
+  min-height: 280px;
+  height: auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+  cursor: text !important;
+  font-family: var(--font-sans) !important;
+  font-size: 1rem !important;
+}
+
+.ql-editor {
+  min-height: 280px !important;
+  height: 100% !important;
+  flex: 1 1 auto !important;
+  cursor: text !important;
+  box-sizing: border-box !important;
+  padding: 16px !important;
+}
+
+.ql-editor.ql-blank::before {
+  cursor: text !important;
+  pointer-events: none !important;
+}
+
+html.dark .ql-container.ql-snow {
+  color: #f1f5f9 !important;
+  background-color: #020617 !important;
+}
+
+html.dark .ql-editor.ql-blank::before {
+  color: #64748b !important;
+  pointer-events: none !important;
+}
+
+/* Ad spaces specific styling for easy script dropping */
+.ad-leaderboard {
+  min-height: 90px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ad-sidebar {
+  min-height: 300px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ad-footer {
+  min-height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Word breaking, layouts and box-fitting safety */
+.break-words, 
+p, 
+h1, 
+h2, 
+h3, 
+h4, 
+h5, 
+h6, 
+div, 
+span, 
+a {
+  word-wrap: break-word;
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+.article-rich-text {
+  max-width: 100%;
+}
+
+.article-rich-text * {
+  max-width: 100%;
+}
+
+/* Elegant Slate Dark Mode Theme Styles */
+html.dark {
+  color-scheme: dark;
+}
+
+html.dark body {
+  background-color: #0f172a;
+  color: #f1f5f9;
+}
+
+html.dark #app-root-container {
+  background-color: #0f172a;
+}
+
+html.dark #main-header,
+html.dark #main-footer,
+html.dark .bg-white,
+html.dark [id^="post-card-"],
+html.dark #story-form-section > div,
+html.dark #admin-board-view .bg-white,
+html.dark #homepage-view .bg-white {
+  background-color: #1e293b !important;
+  color: #f8fafc !important;
+  border-color: #334155 !important;
+}
+
+html.dark .text-slate-900,
+html.dark .text-slate-950,
+html.dark .text-slate-800,
+html.dark .text-slate-700,
+html.dark .text-slate-600 {
+  color: #e2e8f0 !important;
+}
+
+html.dark .text-slate-500,
+html.dark .text-slate-400 {
+  color: #94a3b8 !important;
+}
+
+html.dark :not(button):not(a).bg-slate-50,
+html.dark :not(button):not(a).bg-slate-50\/50,
+html.dark :not(button):not(a).bg-slate-100 {
+  background-color: #0f172a !important;
+}
+
+html.dark .border-slate-200,
+html.dark .border-slate-300 {
+  border-color: #334155 !important;
+}
+
+/* Universal Horizontal Line & Divider Visibility in Dark Theme */
+html.dark hr,
+html.dark .h-px,
+html.dark [role="separator"] {
+  background-color: #334155 !important;
+  border-color: #334155 !important;
+  color: #334155 !important;
+  opacity: 1 !important;
+  height: 1px !important;
+}
+
+html.dark .border-slate-800,
+html.dark .border-slate-800\/80,
+html.dark .dark\:border-slate-800,
+html.dark .dark\:border-slate-800\/80,
+html.dark .border-slate-700,
+html.dark .divide-slate-800,
+html.dark .divide-slate-800\/80 {
+  border-color: #334155 !important;
+}
+
+html.dark hr.dark\:bg-slate-800,
+html.dark .h-px.dark\:bg-slate-800,
+html.dark .h-px.bg-slate-200,
+html.dark #article-end-boundary .h-px {
+  background-color: #334155 !important;
+  opacity: 1 !important;
+}
+
+html.dark #feed-pagination {
+  border-top-color: #334155 !important;
+}
+
+html.dark #card-reactions {
+  border-top-color: #334155 !important;
+}
+
+html.dark #main-header {
+  border-bottom: 1px solid #334155 !important;
+}
+
+html.dark #main-footer {
+  border-top: 1px solid #334155 !important;
+}
+
+html.dark #main-footer .border-t {
+  border-top-color: #334155 !important;
+}
+
+/* Universal Button Visibility in Dark Theme */
+html.dark button {
+  color: #f1f5f9;
+}
+
+html.dark button svg {
+  color: inherit;
+}
+
+/* Solid and pill buttons in dark mode: clear background, contrasting text and visible border */
+html.dark button.bg-slate-100,
+html.dark button.bg-slate-50,
+html.dark button.dark\:bg-slate-800,
+html.dark button.dark\:bg-slate-900,
+html.dark #article-back-btn,
+html.dark #pagination-prev-btn,
+html.dark #pagination-next-btn,
+html.dark #page-liquid-glass-back-btn,
+html.dark #profile-back-button,
+html.dark [id^="profile-"],
+html.dark #admin-dashboard-button,
+html.dark #privacy-policy-button,
+html.dark #terms-of-service-button,
+html.dark #account-delete-button,
+html.dark #guest-privacy-policy-button,
+html.dark #guest-terms-of-service-button,
+html.dark #guest-account-delete-button {
+  color: #f1f5f9 !important;
+}
+
+html.dark #page-liquid-glass-back-btn span,
+html.dark [id^="profile-"] span,
+html.dark #admin-dashboard-button span,
+html.dark #privacy-policy-button span,
+html.dark #terms-of-service-button span,
+html.dark #account-delete-button span,
+html.dark #guest-privacy-policy-button span,
+html.dark #guest-terms-of-service-button span,
+html.dark #guest-account-delete-button span {
+  color: #f1f5f9 !important;
+}
+
+/* Profile Back Button: Tailless arrow, no background design, border, or shadow */
+#page-liquid-glass-back-btn,
+#profile-back-button,
+#page-liquid-glass-back-btn:hover,
+#profile-back-button:hover,
+html.dark #page-liquid-glass-back-btn,
+html.dark #profile-back-button,
+html.dark #page-liquid-glass-back-btn:hover,
+html.dark #profile-back-button:hover {
+  background: transparent !important;
+  background-color: transparent !important;
+  border: 0 !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+/* ==========================================================================
+   Profile Page & Key Buttons in Dark Theme: Transparent Hover Effect
+   Ensures button text is completely visible, crisp, and never hidden
+   ========================================================================== */
+html.dark [id^="profile-"]:hover:not(#profile-signout-button):not(#profile-back-button),
+html.dark #profile-page-stage a:hover,
+html.dark #profile-page-stage button:hover:not(#profile-signout-button),
+html.dark #admin-dashboard-button:hover,
+html.dark #privacy-policy-button:hover,
+html.dark #terms-of-service-button:hover,
+html.dark #account-delete-button:hover,
+html.dark #guest-privacy-policy-button:hover,
+html.dark #guest-terms-of-service-button:hover,
+html.dark #guest-account-delete-button:hover,
+html.dark #pagination-prev-btn:hover:not(:disabled),
+html.dark #pagination-next-btn:hover:not(:disabled) {
+  background-color: transparent !important;
+  background: transparent !important;
+  border-color: #6366f1 !important;
+  color: #ffffff !important;
+}
+
+html.dark [id^="profile-"]:hover:not(#profile-signout-button):not(#profile-back-button) span,
+html.dark [id^="profile-"]:hover:not(#profile-signout-button):not(#profile-back-button) svg,
+html.dark #profile-page-stage a:hover span,
+html.dark #profile-page-stage a:hover svg,
+html.dark #profile-page-stage button:hover:not(#profile-signout-button) span,
+html.dark #profile-page-stage button:hover:not(#profile-signout-button) svg,
+html.dark #admin-dashboard-button:hover span,
+html.dark #privacy-policy-button:hover span,
+html.dark #terms-of-service-button:hover span,
+html.dark #account-delete-button:hover span,
+html.dark #guest-privacy-policy-button:hover span,
+html.dark #guest-terms-of-service-button:hover span,
+html.dark #guest-account-delete-button:hover span,
+html.dark #pagination-prev-btn:hover:not(:disabled) span,
+html.dark #pagination-next-btn:hover:not(:disabled) span {
+  color: #ffffff !important;
+}
+
+/* Sign out button in dark theme: vibrant text, transparent hover */
+html.dark #profile-signout-button,
+html.dark #signout-button {
+  background-color: #dc2626 !important;
+  color: #ffffff !important;
+  border-color: #b91c1c !important;
+}
+
+html.dark #profile-signout-button:hover,
+html.dark #signout-button:hover {
+  background-color: transparent !important;
+  background: transparent !important;
+  border-color: #ef4444 !important;
+  color: #f87171 !important;
+}
+
+html.dark #profile-signout-button:hover span,
+html.dark #signout-button:hover span {
+  color: #f87171 !important;
+}
+
+/* Sign in button in dark theme */
+html.dark #profile-signin-button {
+  color: #ffffff !important;
+  border-color: #334155 !important;
+}
+
+html.dark #profile-signin-button:hover {
+  background-color: transparent !important;
+  background: transparent !important;
+  border-color: #6366f1 !important;
+  color: #ffffff !important;
+}
+
+html.dark #profile-signin-button span,
+html.dark #profile-signin-button:hover span {
+  color: #ffffff !important;
+}
+
+/* ==========================================================================
+   Pagination Page Index Numbers in Dark Theme
+   ========================================================================== */
+/* Inactive Page Number Buttons in Dark Theme */
+html.dark [id^="pagination-page-"],
+html.dark .pagination-page-inactive {
+  background-color: #1e293b !important;
+  color: #f1f5f9 !important;
+  border: 1px solid #334155 !important;
+}
+
+html.dark [id^="pagination-page-"] span,
+html.dark .pagination-page-inactive span {
+  color: #f1f5f9 !important;
+}
+
+html.dark [id^="pagination-page-"]:hover:not([data-active="true"]):not(.pagination-page-active),
+html.dark .pagination-page-inactive:hover {
+  background-color: #334155 !important;
+  color: #ffffff !important;
+  border-color: #475569 !important;
+}
+
+html.dark [id^="pagination-page-"]:hover:not([data-active="true"]):not(.pagination-page-active) span,
+html.dark .pagination-page-inactive:hover span {
+  color: #ffffff !important;
+}
+
+/* Active Page Number Button in Dark Theme: Bright, unmistakable indigo badge with crystal clear white text */
+html.dark [id^="pagination-page-"][data-active="true"],
+html.dark [id^="pagination-page-"].pagination-page-active,
+html.dark .pagination-page-active {
+  background-color: #4f46e5 !important;
+  color: #ffffff !important;
+  border: 1px solid #6366f1 !important;
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.5) !important;
+}
+
+html.dark [id^="pagination-page-"][data-active="true"] span,
+html.dark [id^="pagination-page-"].pagination-page-active span,
+html.dark .pagination-page-active span {
+  color: #ffffff !important;
+  font-weight: 700 !important;
+}
+
+/* Pagination Dots */
+html.dark .pagination-dots {
+  color: #94a3b8 !important;
+}
+
+/* Pagination Info / Summary Text in Dark Mode */
+html.dark .pagination-summary {
+  color: #94a3b8 !important;
+}
+
+html.dark .pagination-summary strong {
+  color: #ffffff !important;
+}
+
+/* Active bottom reaction buttons in dark mode */
+html.dark #bottom-like-btn.bg-emerald-100,
+html.dark #bottom-like-btn[class*="bg-emerald"] {
+  background-color: rgba(6, 78, 59, 0.7) !important;
+  border: 1px solid #059669 !important;
+  color: #6ee7b7 !important;
+}
+
+html.dark #bottom-dislike-btn.bg-rose-100,
+html.dark #bottom-dislike-btn[class*="bg-rose"] {
+  background-color: rgba(136, 19, 55, 0.7) !important;
+  border: 1px solid #e11d48 !important;
+  color: #fda4af !important;
+}
+
+/* Transparent reaction buttons (e.g. on cards and article top bar) */
+html.dark .reaction-btn-clean,
+html.dark #article-like-btn,
+html.dark #article-dislike-btn,
+html.dark #native-share-btn,
+html.dark #card-reactions button {
+  background-color: transparent !important;
+  color: #cbd5e1 !important;
+}
+
+html.dark .reaction-btn-clean svg,
+html.dark #article-like-btn svg,
+html.dark #article-dislike-btn svg,
+html.dark #native-share-btn svg,
+html.dark #card-reactions button svg {
+  color: #94a3b8 !important;
+}
+
+html.dark .reaction-btn-clean:hover,
+html.dark #article-like-btn:hover,
+html.dark #article-dislike-btn:hover,
+html.dark #native-share-btn:hover,
+html.dark #card-reactions button:hover {
+  color: #ffffff !important;
+}
+
+html.dark .reaction-btn-clean:hover svg,
+html.dark #article-like-btn:hover svg,
+html.dark #article-dislike-btn:hover svg,
+html.dark #native-share-btn:hover svg,
+html.dark #card-reactions button:hover svg {
+  color: #ffffff !important;
+}
+
+/* Active liked / disliked transparent buttons */
+html.dark #article-like-btn[class*="text-emerald"],
+html.dark .reaction-btn-clean[class*="text-emerald"],
+html.dark #card-reactions button[class*="text-emerald"] {
+  color: #34d399 !important;
+}
+html.dark #article-like-btn[class*="text-emerald"] svg,
+html.dark .reaction-btn-clean[class*="text-emerald"] svg,
+html.dark #card-reactions button[class*="text-emerald"] svg {
+  color: #34d399 !important;
+  fill: #34d399 !important;
+}
+
+html.dark #article-dislike-btn[class*="text-rose"],
+html.dark .reaction-btn-clean[class*="text-rose"],
+html.dark #card-reactions button[class*="text-rose"] {
+  color: #fb7185 !important;
+}
+html.dark #article-dislike-btn[class*="text-rose"] svg,
+html.dark .reaction-btn-clean[class*="text-rose"] svg,
+html.dark #card-reactions button[class*="text-rose"] svg {
+  color: #fb7185 !important;
+  fill: #fb7185 !important;
+}
+
+/* Category filter buttons in dark mode */
+html.dark #stacked-tag-filter-buttons button {
+  color: #cbd5e1 !important;
+}
+
+html.dark #stacked-tag-filter-buttons button:hover {
+  color: #34d399 !important;
+}
+
+html.dark #stacked-tag-filter-buttons button[class*="text-emerald"] {
+  color: #34d399 !important;
+}
+
+/* Comprehensive dark mode styling for all article content and rich text */
+html.dark .article-rich-text,
+html.dark .article-rich-text *,
+html.dark #article-main-box,
+html.dark #article-main-box *,
+html.dark #article-content,
+html.dark #article-content * {
+  color: #cbd5e1 !important;
+}
+
+html.dark .article-rich-text span,
+html.dark .article-rich-text p,
+html.dark .article-rich-text div,
+html.dark #article-main-box span,
+html.dark #article-main-box p,
+html.dark #article-main-box div {
+  background-color: transparent !important;
+}
+
+html.dark .article-rich-text h1,
+html.dark .article-rich-text h1 *,
+html.dark .article-rich-text h2,
+html.dark .article-rich-text h2 *,
+html.dark .article-rich-text h3,
+html.dark .article-rich-text h3 *,
+html.dark .article-rich-text h4,
+html.dark .article-rich-text h4 *,
+html.dark .article-rich-text h5,
+html.dark .article-rich-text h5 *,
+html.dark .article-rich-text h6,
+html.dark .article-rich-text h6 *,
+html.dark .article-rich-text strong,
+html.dark .article-rich-text strong *,
+html.dark .article-rich-text b,
+html.dark .article-rich-text b * {
+  color: #ffffff !important;
+}
+
+html.dark .article-rich-text a,
+html.dark .article-rich-text a * {
+  color: #818cf8 !important;
+}
+
+html.dark .article-rich-text a:hover,
+html.dark .article-rich-text a:hover * {
+  color: #a5b4fc !important;
+}
+
+html.dark .article-rich-text blockquote,
+html.dark .article-rich-text blockquote * {
+  color: #94a3b8 !important;
+  background-color: #1e293b !important;
+  border-left-color: #818cf8 !important;
+}
+
+html.dark .article-rich-text code,
+html.dark .article-rich-text pre {
+  color: #e2e8f0 !important;
+  background-color: #1e293b !important;
+}
+
+html.dark h1,
+html.dark h2,
+html.dark h3,
+html.dark h4,
+html.dark h5 {
+  color: #ffffff !important;
+}
+
+html.dark input,
+html.dark textarea,
+html.dark select {
+  background-color: #0f172a !important;
+  color: #ffffff !important;
+  border-color: #334155 !important;
+}
+
+html.dark .quill,
+html.dark .ql-toolbar.ql-snow,
+html.dark .ql-container.ql-snow {
+  background-color: #1e293b !important;
+  border-color: #334155 !important;
+}
+
+html.dark .ql-editor {
+  color: #f8fafc !important;
+}
+
+html.dark .ql-snow .ql-stroke {
+  stroke: #e2e8f0 !important;
+}
+
+html.dark .ql-snow .ql-fill {
+  fill: #e2e8f0 !important;
+}
+
+html.dark .ql-snow .ql-picker {
+  color: #e2e8f0 !important;
+}
+
+/* Interactivity helpers for article image lightboxing - Compact, borderless, full photo visible */
+.ql-editor img,
+.article-body-photo,
+.article-rich-text img, 
+#article-main-box img,
+#article-content img,
+#featured-article-photo-container img,
+[id^="article-figure-"] img,
+article .prose img {
+  display: block;
+  margin: 1.25rem auto;
+  max-width: 100% !important;
+  width: auto !important;
+  max-height: 400px !important;
+  height: auto !important;
+  border-radius: 0.75rem;
+  border: none !important;
+  outline: none !important;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.06);
+  object-fit: contain !important;
+}
+
+@media (max-width: 640px) {
+  .ql-editor img,
+  .article-body-photo,
+  .article-rich-text img, 
+  #article-main-box img,
+  #article-content img,
+  #featured-article-photo-container img,
+  [id^="article-figure-"] img,
+  article .prose img {
+    max-height: 320px !important;
+  }
+}
+
+.ql-editor img {
+  max-height: 360px !important;
+}
+
+.article-rich-text img, 
+#article-main-box img {
+  cursor: zoom-in;
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease-in-out;
+}
+
+.article-rich-text img:hover, 
+#article-main-box img:hover {
+  opacity: 0.98;
+  transform: scale(1.005);
+}
+
+/* Premium Physical Newspaper Paper Style - Light Mode */
+.newspaper-paper,
+#app-root-container .newspaper-paper {
+  background-color: #faf6eb !important;
+  color: #1c1917 !important; /* Deep charcoal for perfect reading contrast */
+  border-color: #e7e5e4 !important;
+  box-shadow: 0 4px 6px -1px rgba(28, 25, 23, 0.05), 0 2px 4px -2px rgba(28, 25, 23, 0.05) !important;
+}
+
+/* Premium Physical Newspaper Paper Style - Dark Mode */
+html.dark .newspaper-paper,
+html.dark #app-root-container .newspaper-paper,
+html.dark [id^="post-card-"],
+html.dark [id^="post-card-"].newspaper-paper,
+html.dark #posts-grid > article,
+html.dark #article-main-box.newspaper-paper,
+html.dark #related-articles-section .newspaper-paper {
+  background-color: #1e293b !important;
+  color: #f1f5f9 !important;
+  border-color: #334155 !important;
+  box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.35) !important;
+}
+
+/* Ensure all headers, texts, and links inside the newspaper block */
+.newspaper-paper h1,
+.newspaper-paper h2,
+.newspaper-paper h3,
+.newspaper-paper h4,
+.newspaper-paper h5,
+.newspaper-paper h6,
+.newspaper-paper p,
+.newspaper-paper span,
+.newspaper-paper a,
+.newspaper-paper div,
+.newspaper-paper li,
+.newspaper-paper strong,
+.newspaper-paper em {
+  color: #1c1917 !important;
+}
+
+html.dark .newspaper-paper h1,
+html.dark .newspaper-paper h2,
+html.dark .newspaper-paper h3,
+html.dark .newspaper-paper h4,
+html.dark .newspaper-paper h5,
+html.dark .newspaper-paper h6,
+html.dark .newspaper-paper strong,
+html.dark .newspaper-paper em,
+html.dark [id^="post-card-"] h3,
+html.dark [id^="post-card-"] h3 a,
+html.dark [id^="post-card-"].newspaper-paper h3,
+html.dark [id^="post-card-"].newspaper-paper h3 a {
+  color: #ffffff !important;
+}
+
+html.dark .newspaper-paper p,
+html.dark [id^="post-card-"] p,
+html.dark [id^="post-card-"].newspaper-paper p {
+  color: #cbd5e1 !important;
+}
+
+html.dark .newspaper-paper span,
+html.dark .newspaper-paper div,
+html.dark .newspaper-paper a,
+html.dark .newspaper-paper li,
+html.dark [id^="post-card-"] span,
+html.dark [id^="post-card-"] div,
+html.dark [id^="post-card-"] a,
+html.dark [id^="post-card-"].newspaper-paper span,
+html.dark [id^="post-card-"].newspaper-paper a,
+html.dark [id^="post-card-"].newspaper-paper div {
+  color: #f1f5f9 !important;
+}
+
+/* Specific exceptions for secondary or muted texts inside newspaper paper */
+.newspaper-paper .text-slate-500,
+.newspaper-paper .text-slate-400,
+.newspaper-paper .text-slate-450,
+.newspaper-paper .text-slate-550 {
+  color: #57534e !important; /* Stone-600 / Muted newspaper ink */
+}
+
+html.dark .newspaper-paper .text-slate-500,
+html.dark .newspaper-paper .text-slate-400,
+html.dark .newspaper-paper .text-slate-450,
+html.dark .newspaper-paper .text-slate-550 {
+  color: #94a3b8 !important;
+}
+
+/* Ensure read full article link is styled in red */
+.newspaper-paper a.read-full-article-link,
+.newspaper-paper a.read-full-article-link span {
+  color: #dc2626 !important; /* Red-600 */
+}
+
+html.dark .newspaper-paper a.read-full-article-link,
+html.dark .newspaper-paper a.read-full-article-link span {
+  color: #f87171 !important; /* Red-400 in dark mode */
+}
+
+.newspaper-paper a.read-full-article-link:hover,
+.newspaper-paper a.read-full-article-link:hover span {
+  color: #b91c1c !important; /* Red-700 */
+}
+
+html.dark .newspaper-paper a.read-full-article-link:hover,
+html.dark .newspaper-paper a.read-full-article-link:hover span {
+  color: #ef4444 !important;
+}
+
+/* Ensure standard links (like "Read Full Article") hover elegantly */
+.newspaper-paper a:hover {
+  color: #4f46e5 !important; /* Indigo hover */
+}
+
+html.dark .newspaper-paper a:hover {
+  color: #818cf8 !important;
+}
+
+/* Override rich text within newspaper view */
+.newspaper-paper .article-rich-text p,
+.newspaper-paper .article-rich-text li {
+  color: #292524 !important; /* Stone-800 for high-quality book text print */
+}
+
+html.dark .newspaper-paper .article-rich-text p,
+html.dark .newspaper-paper .article-rich-text li {
+  color: #cbd5e1 !important;
+}
+
+/* Buttons, sharing links and reactions inside newspaper paper */
+.newspaper-paper button,
+.newspaper-paper .share-btn {
+  background-color: #f5f2eb !important;
+  color: #44403c !important;
+  border: 1px solid #e7e5e4 !important;
+}
+
+html.dark .newspaper-paper button,
+html.dark .newspaper-paper .share-btn {
+  background-color: #1e293b !important;
+  color: #cbd5e1 !important;
+  border: 1px solid #334155 !important;
+}
+
+.newspaper-paper button:hover,
+.newspaper-paper .share-btn:hover {
+  background-color: #e7e5e4 !important;
+  color: #1c1917 !important;
+}
+
+html.dark .newspaper-paper button:hover,
+html.dark .newspaper-paper .share-btn:hover {
+  background-color: #334155 !important;
+  color: #f8fafc !important;
+}
+
+/* Specific exemption: remove background box and border from like and dislike buttons */
+.newspaper-paper #card-reactions button,
+html.dark .newspaper-paper #card-reactions button,
+.newspaper-paper button.reaction-btn-clean,
+html.dark .newspaper-paper button.reaction-btn-clean {
+  background-color: transparent !important;
+  background: transparent !important;
+  border: none !important;
+  border-width: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+.newspaper-paper #card-reactions button:hover,
+html.dark .newspaper-paper #card-reactions button:hover,
+.newspaper-paper button.reaction-btn-clean:hover,
+html.dark .newspaper-paper button.reaction-btn-clean:hover {
+  background-color: transparent !important;
+  background: transparent !important;
+  border: none !important;
+  border-width: 0 !important;
+  box-shadow: none !important;
+}
+
+/* Category tag inside newspaper paper: text-only without background box */
+.newspaper-paper .card-category-tag {
+  background: transparent !important;
+  background-color: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+  color: #4f46e5 !important; /* Indigo text */
+}
+
+html.dark .newspaper-paper .card-category-tag,
+html.dark [id^="post-card-"].newspaper-paper .card-category-tag {
+  background: transparent !important;
+  background-color: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+  color: #818cf8 !important;
+}
+
+.newspaper-paper .card-category-tag:hover {
+  color: #4338ca !important;
+}
+
+html.dark .newspaper-paper .card-category-tag:hover,
+html.dark [id^="post-card-"].newspaper-paper .card-category-tag:hover {
+  color: #a5b4fc !important;
+}
+
+/* Category badges inside newspaper paper */
+.newspaper-paper .bg-slate-100,
+.newspaper-paper .bg-slate-50 {
+  background-color: #eae6db !important;
+  color: #44403c !important;
+  border-color: #d6d3d1 !important;
+}
+
+html.dark .newspaper-paper .bg-slate-100,
+html.dark .newspaper-paper .bg-slate-50 {
+  background-color: #1e293b !important;
+  color: #cbd5e1 !important;
+  border-color: #334155 !important;
+}
+
+/* Custom reactions highlights inside newspaper paper */
+.newspaper-paper .bg-emerald-50 {
+  background-color: #d1fae5 !important;
+  color: #065f46 !important;
+  border-color: #10b981 !important;
+}
+
+html.dark .newspaper-paper .bg-emerald-50 {
+  background-color: rgba(6, 78, 59, 0.4) !important;
+  color: #6ee7b7 !important;
+  border-color: #059669 !important;
+}
+
+.newspaper-paper .bg-rose-50 {
+  background-color: #ffe4e6 !important;
+  color: #9f1239 !important;
+  border-color: #f43f5e !important;
+}
+
+html.dark .newspaper-paper .bg-rose-50 {
+  background-color: rgba(136, 19, 55, 0.4) !important;
+  color: #fda4af !important;
+  border-color: #e11d48 !important;
+}
+
+/* Custom embeds box and external links inside newspaper */
+.newspaper-paper #custom-embeds-box {
+  background-color: #f3eedd !important; /* Slightly deeper cream for container depth */
+  border-color: #e2dbbe !important;
+}
+
+html.dark .newspaper-paper #custom-embeds-box {
+  background-color: #1e293b !important;
+  border-color: #334155 !important;
+}
+
+.newspaper-paper #custom-embeds-box a {
+  background-color: #faf6eb !important; /* Authentic newspaper paper cream */
+  border-color: #e2dbbe !important;
+  color: #1c1917 !important;
+}
+
+html.dark .newspaper-paper #custom-embeds-box a {
+  background-color: #0f172a !important;
+  border-color: #334155 !important;
+  color: #f1f5f9 !important;
+}
+
+.newspaper-paper #custom-embeds-box a:hover {
+  background-color: #fcfbf7 !important;
+  border-color: #a8a29e !important;
+}
+
+html.dark .newspaper-paper #custom-embeds-box a:hover {
+  background-color: #1e293b !important;
+  border-color: #475569 !important;
+}
+
+.newspaper-paper #custom-embeds-box .text-slate-800,
+.newspaper-paper #custom-embeds-box .text-indigo-600 {
+  color: #1c1917 !important;
+}
+
+html.dark .newspaper-paper #custom-embeds-box .text-slate-800,
+html.dark .newspaper-paper #custom-embeds-box .text-indigo-600 {
+  color: #f1f5f9 !important;
+}
+
+.newspaper-paper #custom-embeds-box .text-slate-400 {
+  color: #57534e !important; /* Muted stone ink */
+}
+
+html.dark .newspaper-paper #custom-embeds-box .text-slate-400 {
+  color: #94a3b8 !important;
+}
+
+.newspaper-paper #custom-embeds-box .bg-indigo-50 {
+  background-color: #eae6db !important;
+  color: #44403c !important;
+}
+
+html.dark .newspaper-paper #custom-embeds-box .bg-indigo-50 {
+  background-color: #0f172a !important;
+  color: #cbd5e1 !important;
+}
+
+/* Phone screen: articles touch screen edges, no card rounded corners, black horizontal line */
+@media (max-width: 639px) {
+  #posts-grid > article,
+  #posts-grid > [id^="post-card-"] {
+    border-top: 0 !important;
+    border-left: 0 !important;
+    border-right: 0 !important;
+    border-bottom: 1px solid #000000 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+
+  html.dark #posts-grid > article,
+  html.dark #posts-grid > [id^="post-card-"] {
+    border-top: 0 !important;
+    border-left: 0 !important;
+    border-right: 0 !important;
+    border-bottom: 1px solid #334155 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+}
+
+/* Tag Filter Box Area: white background with no border */
+#tag-filter-box-area {
+  background-color: #ffffff !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+html.dark #tag-filter-box-area {
+  background-color: #020617 !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+#stacked-tag-filter-buttons button {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+#stacked-tag-filter-buttons button.text-emerald-600,
+html.dark #stacked-tag-filter-buttons button.text-emerald-400 {
+  color: #059669 !important;
+}
+
+#filter-footer-green-divider {
+  background-color: #10b981 !important;
+  border: none !important;
+}
+
+#article-main-box {
+  border: none !important;
+  border-width: 0 !important;
+  box-shadow: none !important;
+}
+
+html.dark #article-main-box {
+  border: none !important;
+  border-width: 0 !important;
+  box-shadow: none !important;
+}
+
+
+

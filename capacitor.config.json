@@ -1,0 +1,5 @@
+{
+  "appId": "blog.currentnews.app",
+  "appName": "Current News",
+  "webDir": "dist"
+}

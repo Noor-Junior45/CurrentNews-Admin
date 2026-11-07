@@ -1,0 +1,16 @@
+{
+  "latestVersion": "1.0.1",
+  "latestVersionCode": 2,
+  "minSupportedVersion": "1.0.0",
+  "minSupportedVersionCode": 1,
+  "title": "New Live Edition Available",
+  "releaseNotes": [
+    "Ultra-fast article preview loading with zero layout shift.",
+    "Integrated multi-origin edge load balancing.",
+    "Improved offline cache and regional dispatches."
+  ],
+  "forceUpdate": false,
+  "playStoreUrl": "https://play.google.com/store/apps/details?id=blog.currentnews.app",
+  "directApkUrl": "https://media.currentnews.blog/app/currentnews-latest.apk",
+  "updatedAt": "2026-11-01T19:18:25.878Z"
+}

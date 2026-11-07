@@ -1,0 +1,177 @@
+{
+  "entities": {
+    "Post": {
+      "title": "Post",
+      "description": "A news blog article containing rich HTML content, social URLs, and timestamps",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "The title of the news article"
+        },
+        "content": {
+          "type": "string",
+          "description": "The cleaned HTML body of the article"
+        },
+        "youtubeUrl": {
+          "type": "string",
+          "description": "Optional YouTube link to embed"
+        },
+        "facebookUrl": {
+          "type": "string",
+          "description": "Optional Facebook post Link to embed"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last update timestamp"
+        }
+      },
+      "required": ["title", "content", "createdAt"]
+    },
+    "Setting": {
+      "title": "Setting",
+      "description": "Platform settings including editor pen names and system configuration",
+      "type": "object",
+      "properties": {
+        "penName": {
+          "type": "string",
+          "description": "Author display pen name"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last updated timestamp"
+        }
+      }
+    },
+    "Subscriber": {
+      "title": "Subscriber",
+      "description": "Audience newsletter subscribers",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Subscriber email address"
+        },
+        "subscribedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Date subscribed"
+        }
+      },
+      "required": ["email"]
+    },
+    "Reaction": {
+      "title": "Reaction",
+      "description": "User like or dislike reaction on an article",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "User UID who reacted"
+        },
+        "postId": {
+          "type": "string",
+          "description": "Article ID"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["like", "dislike"],
+          "description": "Reaction type"
+        }
+      },
+      "required": ["userId", "postId", "type"]
+    },
+    "PushSubscription": {
+      "title": "PushSubscription",
+      "description": "Registered Web Push / FCM device subscription for background notifications",
+      "type": "object",
+      "properties": {
+        "endpoint": {
+          "type": "string",
+          "description": "Unique push service endpoint URL"
+        },
+        "keys": {
+          "type": "object",
+          "properties": {
+            "p256dh": { "type": "string" },
+            "auth": { "type": "string" }
+          },
+          "required": ["p256dh", "auth"]
+        },
+        "userAgent": {
+          "type": "string",
+          "description": "Device or browser user agent"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["endpoint", "keys"]
+    },
+    "User": {
+      "title": "User",
+      "description": "User account profile storing pen name and author metadata",
+      "type": "object",
+      "properties": {
+        "penName": {
+          "type": "string",
+          "description": "Author pen name",
+          "maxLength": 100
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Account email address"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last update timestamp"
+        }
+      }
+    }
+  },
+  "firestore": {
+    "posts/{postId}": {
+      "schema": "Post",
+      "description": "Collection of all news posts sorted and filtered for public reader or admin"
+    },
+    "settings/{settingsId}": {
+      "schema": "Setting",
+      "description": "Editor profiles and public configuration settings"
+    },
+    "subscribers/{subscriberId}": {
+      "schema": "Subscriber",
+      "description": "Newsletter mailing list subscribers"
+    },
+    "reactions/{reactionId}": {
+      "schema": "Reaction",
+      "description": "User reaction tracking to prevent double voting"
+    },
+    "test/{testId}": {
+      "schema": "Setting",
+      "description": "Health check connection document"
+    },
+    "push_subscriptions/{subscriptionId}": {
+      "schema": "PushSubscription",
+      "description": "Audience devices registered to receive instant push alerts"
+    },
+    "users/{userId}": {
+      "schema": "User",
+      "description": "Individual author profile and pen name settings"
+    }
+  }
+}

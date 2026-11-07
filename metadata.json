@@ -1,0 +1,8 @@
+{
+  "name": "Current News - Admin",
+  "description": "A responsive news blog featuring a public reader feed, automatic YouTube and Facebook social embeds, advertisement placeholders, and a secure admin dashboard powered by Firebase.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
