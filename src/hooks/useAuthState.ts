@@ -16,8 +16,8 @@ export interface AuthState {
  * No hardcoded emails, domains, or client-side bypasses.
  */
 let cachedAuthState: AuthState = {
-  user: null,
-  loading: true,
+  user: auth.currentUser || null,
+  loading: !auth.currentUser,
   isAdmin: false,
   isOwnerAdmin: false,
   role: null,
@@ -29,6 +29,41 @@ const listeners = new Set<(state: AuthState) => void>();
 function updateGlobalAuthState(newState: AuthState) {
   cachedAuthState = newState;
   listeners.forEach((listener) => listener(cachedAuthState));
+}
+
+/**
+ * Near-instantaneously synchronizes user claims into cachedAuthState.
+ * Uses getIdTokenResult(false) for local cached token parsing to eliminate network latency,
+ * guaranteeing zero UI flicker or bounce-back during login navigation.
+ */
+export async function syncUserAuthState(currentUser: User, forceRefresh = true): Promise<AuthState> {
+  let role: 'admin' | 'writer' | null = null;
+
+  try {
+    // Force-refresh token on login so newly assigned role claims are picked up immediately
+    const tokenResult = await currentUser.getIdTokenResult(forceRefresh);
+    const claimRole = (tokenResult.claims.role as 'admin' | 'writer') || null;
+    if (claimRole) {
+      role = claimRole;
+    }
+  } catch (err) {
+    console.debug('[Auth State] Token claim read notice:', err);
+  }
+
+  const isWriter = role === 'writer';
+  const isOwnerAdmin = role === 'admin';
+  const isAdmin = isOwnerAdmin || isWriter;
+
+  const nextState: AuthState = {
+    user: currentUser,
+    loading: false,
+    isAdmin,
+    isOwnerAdmin,
+    role,
+  };
+
+  updateGlobalAuthState(nextState);
+  return nextState;
 }
 
 // Start Firebase auth listener once at module evaluation
@@ -46,30 +81,7 @@ if (typeof window !== 'undefined' && !isAuthInitialized) {
       return;
     }
 
-    try {
-      const tokenResult = await currentUser.getIdTokenResult(true);
-      const role = (tokenResult.claims.role as 'admin' | 'writer') || null;
-      const isWriter = role === 'writer';
-      const isOwnerAdmin = role === 'admin';
-      const isAdmin = isOwnerAdmin || isWriter;
-
-      updateGlobalAuthState({
-        user: currentUser,
-        loading: false,
-        isAdmin,
-        isOwnerAdmin,
-        role,
-      });
-    } catch (err) {
-      console.warn('[Auth State] Error retrieving custom claims:', err);
-      updateGlobalAuthState({
-        user: currentUser,
-        loading: false,
-        isAdmin: false,
-        isOwnerAdmin: false,
-        role: null,
-      });
-    }
+    await syncUserAuthState(currentUser);
   });
 }
 

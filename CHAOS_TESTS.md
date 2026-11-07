@@ -204,12 +204,28 @@ curl -s -I -H "Host: admin.currentnews.blog" http://localhost:3000/
 curl -s http://localhost:3000/index.html | grep -i 'rel="manifest"'
 # Expected: (empty / 0 matches)
 
-# 6. Verify index.html has zero Service Worker registration scripts
-curl -s http://localhost:3000/index.html | grep -i 'serviceWorker'
-# Expected: (empty / 0 matches)
+## 8. Sign In View (Design Variation 4) Chaos & Edge-Case Tests
 
-# 7. Verify title is updated to Editorial Desk
-curl -s http://localhost:3000/index.html | grep -i '<title>'
-# Expected: <title>Current News Live — Editorial Desk</title>
+```bash
+# 1. Verify /signin returns 200 OK with editorial shell
+curl -s -I http://localhost:3000/signin
+# Expected: HTTP/1.1 200 OK
+
+# 2. Verify /login redirects cleanly to /signin
+curl -s -I http://localhost:3000/login
+# Expected: 200 OK (via client router redirect to /signin)
+
+# 3. UI Chaos: Form submission without agreeing to Terms
+# Action: Enter email, click Continue -> Enter password, click Authenticate Access without checking the terms box.
+# Expected: Immediate error banner: "Please agree to our Terms of service and Privacy policy before authenticating."
+# No network request dispatched to Firebase; zero UI freeze.
+
+# 4. UI Chaos: Rapid double-click on "Authenticate Access"
+# Action: Spam double click on submit button.
+# Expected: Button enters disabled state with "Authenticating..." pulse; second click is ignored via isSubmitting guard.
+
+# 5. UI Chaos: Malformed email string
+# Action: Enter "invalid@@example" or "plainaddress" and click Continue.
+# Expected: Client-side validation blocks submit and displays "Please enter a valid email address."
 ```
 

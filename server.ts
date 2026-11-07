@@ -21,7 +21,7 @@ import {
   handleGetSubscribersCount
 } from './src/server/pushNotifications.ts';
 import { handleGetPosts, handleGetPostById, handleGetWriters } from './src/server/postsApi.ts';
-import { handleSaveArticle, handleDeleteArticle, handleSyncArticles, handleMigrateImages, ensureR2ArticlesWarmup, getFeedFromR2, getDeletedArticleIds } from './src/server/r2Articles.ts';
+import { ensureR2ArticlesWarmup, getFeedFromR2, getDeletedArticleIds } from './src/server/r2Articles.ts';
 import { handleGetAppVersion, handleUpdateAppVersion } from './src/server/appVersionApi.ts';
 import { requireRole } from './server/auth/requireRole.ts';
 import { logFirebaseAdminProjectId } from './server/auth/firebaseAdmin.ts';
@@ -94,15 +94,22 @@ async function startServer() {
     const host = rawHost.split(':')[0].trim().toLowerCase();
     const pathName = req.path || '';
 
-    // Development & Cloud Run test URL bypass (localhost, 127.0.0.1, ::1, and *.run.app)
-    const isDevOrPreview = !host ||
-      host === 'localhost' ||
-      host === '127.0.0.1' ||
-      host === '::1' ||
-      host.endsWith('.run.app');
-
-    if (isDevOrPreview) {
+    // Localhost bypass for dev only
+    const isDevLocal = (!host || host === 'localhost' || host === '127.0.0.1' || host === '::1') && process.env.NODE_ENV !== 'production';
+    if (isDevLocal) {
       return next();
+    }
+
+    // In production, block /api/admin/* on any host other than admin.currentnews.blog, currentnews.blog, www.currentnews.blog
+    const isProduction = process.env.NODE_ENV === 'production';
+    const isKnownHost = host === 'admin.currentnews.blog' || host === 'currentnews.blog' || host === 'www.currentnews.blog';
+    if (isProduction && !isKnownHost) {
+      if (pathName === '/api/admin' || pathName.startsWith('/api/admin/')) {
+        return res.status(404).json({
+          success: false,
+          error: 'Not found'
+        });
+      }
     }
 
     // 1. Host: admin.currentnews.blog (Dedicated Admin Workspace)
@@ -174,10 +181,7 @@ async function startServer() {
     return next();
   });
 
-  // Enable JSON and URL-encoded request body parsing
-  // Dedicated 25MB parser exclusively for bulk article sync
-  app.use('/api/articles/sync', express.json({ limit: '25mb' }));
-  // Strict 1MB body limit for admin and all other routes to thwart DoS memory exhaustion
+  // Enable JSON and URL-encoded request body parsing (strict 1MB limit)
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
@@ -245,11 +249,6 @@ async function startServer() {
     res.json({ success: true, deletedIds: deleted });
   }));
 
-  // Protected write endpoints for articles
-  app.post('/api/articles/save', requireRole('admin', 'writer'), asyncHandler(handleSaveArticle));
-  app.delete('/api/articles/:id', requireRole('admin', 'writer'), asyncHandler(handleDeleteArticle));
-  app.post('/api/articles/sync', requireRole('admin', 'writer'), asyncHandler(handleSyncArticles));
-  app.post('/api/articles/migrate-images', requireRole('admin', 'writer'), asyncHandler(handleMigrateImages));
   app.get('/api/writers', asyncHandler(handleGetWriters));
   app.use('/img', express.static(path.join(process.cwd(), 'data', 'img'), { maxAge: '1y', immutable: true }));
 

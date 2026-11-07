@@ -11,7 +11,7 @@ export interface PostStats {
   views: number;
 }
 
-const DEFAULT_API_BASE = 'https://api.currentnews.blog';
+const DEFAULT_API_BASE = '';
 export const API_BASE = (((import.meta as any).env?.VITE_API_BASE as string) || DEFAULT_API_BASE).replace(/\/+$/, '');
 
 /**

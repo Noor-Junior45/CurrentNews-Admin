@@ -22,7 +22,10 @@ export async function signedPost(path: string, body: any): Promise<SignedPostRes
     return { ok: false, status: 500, error: 'SYNC_SECRET environment variable is not configured' };
   }
 
-  const baseUrl = (process.env.WORKER_BASE_URL || 'https://api.currentnews.blog').replace(/\/+$/, '');
+  const baseUrl = (process.env.WORKER_BASE_URL || '').replace(/\/+$/, '');
+  if (!baseUrl) {
+    return { ok: false, status: 500, error: 'WORKER_BASE_URL environment variable is not configured' };
+  }
   const url = `${baseUrl}${path.startsWith('/') ? path : '/' + path}`;
   const rawBody = JSON.stringify(body);
 

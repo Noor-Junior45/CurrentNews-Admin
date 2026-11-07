@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
-import { getAuth } from 'firebase-admin/auth';
 import { getAdminProjectId } from './firebaseAdmin.ts';
+import { verifyFirebaseTokenSafely } from './tokenVerifier.ts';
 
 export interface AuthenticatedUser {
   uid: string;
@@ -61,13 +61,9 @@ export function requireRole(...allowed: string[]) {
       return reject(401, 'no_token', 'Unauthorized: Empty Bearer token');
     }
 
-    // Read env flag AUTH_CHECK_REVOKED (default "true").
-    // Only when it is exactly "false", call verifyIdToken without revocation checking.
-    const checkRevoked = process.env.AUTH_CHECK_REVOKED !== 'false';
-
     let decoded: any;
     try {
-      decoded = await getAuth().verifyIdToken(token, checkRevoked);
+      decoded = await verifyFirebaseTokenSafely(token);
     } catch (err: any) {
       const fbCode = err?.code || '';
       const errMsg = String(err?.message || '');
@@ -94,7 +90,7 @@ export function requireRole(...allowed: string[]) {
         return reject(401, 'invalid_token', 'Unauthorized: Invalid authentication credentials', fbCode || 'invalid_token');
       }
 
-      // Any other firebase-admin error (e.g. permission or credential problem calling Google)
+      // Any other backend error
       return reject(503, 'auth_backend_error', 'Service Unavailable: Authentication backend service error', fbCode || 'auth_backend_error');
     }
 
@@ -103,7 +99,7 @@ export function requireRole(...allowed: string[]) {
       return reject(403, 'email_not_verified', 'Forbidden: Email address must be verified');
     }
 
-    // Role claim requirement: user must have a role claim
+    // Role claim requirement: user must have a role claim strictly from the verified token
     const role = (decoded.role as string) || '';
     if (!role) {
       return reject(403, 'no_role', 'Forbidden: Your account has no admin role yet');

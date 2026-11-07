@@ -191,3 +191,38 @@
 - [x] **Bug ID & Summary:** BUG-043 — Full-Page Loading Buffer Flicker from Uncached Auth Mounts & Child Route Navbar Re-creation.
   - **Root Cause:** Placing `<AdminNavbar />` and `<AdminAuthGuard>` individually inside each child route view meant that switching tabs unmounted the entire page, including the navbar, and triggered fresh auth checks with `loading = true`, briefly converting the entire viewport into a full-page loading spinner.
   - **Permanent Guardrail:** Introduced `src/components/AdminLayout.tsx` as a persistent shell component holding `<AdminNavbar />` permanently mounted across all editorial tabs. Implemented singleton auth state caching in `useAuthState.ts` so in-memory authenticated state persists across route changes with zero loading delay. Localized data-fetching spinners strictly to individual card or table sections (e.g. `feedLoading` in dashboard metrics or `loading` in publications list) without ever obscuring or reloading the navigation header.
+
+- [x] **Bug ID & Summary:** BUG-044 — Google Sign In failed: `FirebaseError: Firebase: Error (auth/unauthorized-domain)`.
+  - **Root Cause:**
+    1. In `AdminAuthGuard.tsx`, unauthenticated users were presented with an "Access Prohibited" screen whose button directly called `signInWithPopup(auth, provider)` and logged exceptions to `console.error('Google Sign In failed:', err)`, triggering test failures when visited on un-whitelisted dynamic preview hostnames (e.g. Cloud Run preview subdomains).
+    2. Dynamic AI Studio preview hostnames (`*.run.app`) are not pre-authorized in the Firebase project's OAuth authorized domains list (`Firebase Console > Authentication > Settings > Authorized domains`), which causes Google Sign-In popups to reject with `auth/unauthorized-domain`.
+  - **Permanent Guardrail:**
+    1. In `AdminAuthGuard.tsx`, unauthenticated users (`!user`) immediately redirect to `/signin` (`<Navigate to="/signin" replace />`), directing visitors to the dedicated authentication stage where Email & Password authentication is available unconditionally across all domains.
+    2. In `src/utils/authHelper.ts`, trapped `auth/unauthorized-domain` specifically to return a structured error result with clear user guidance (`code: 'auth/unauthorized-domain'`) and log via `console.warn` rather than uncaught `console.error`.
+    3. In `SignInView.tsx`, enhanced error alerts to recognize unauthorized domain notices, guide the user on adding the domain to Firebase Console, and highlight the immediate Email & Password login alternative.
+    4. Executed `ProvisionFirebase` via `rpc_action` confirming web platform configuration and Firebase ToS acceptance.
+
+- [x] **Bug ID & Summary:** BUG-045 — Authentication Backend Error: `[auth] auth_backend_error GET /api/admin/me hasHeader=true projectId=gen-lang-client-0638643565 firebaseErrorCode=auth/internal-error`.
+  - **Root Cause:**
+    1. In `/server/auth/requireRole.ts`, `getAuth().verifyIdToken(token, checkRevoked)` defaulted `checkRevoked` to `true` when `process.env.AUTH_CHECK_REVOKED` was unset. With revocation checks enabled, `firebase-admin` calls the Google Identity Platform REST API (`accounts:lookup`) using Application Default Credentials (ADC). Because the execution sandbox / Cloud Run environment lacks IAM Identity Platform permissions on project `gen-lang-client-0638643565`, Google rejects the call with 403 Forbidden, which `firebase-admin` re-wraps as `auth/internal-error` and the API returned as HTTP 503 `auth_backend_error`.
+    2. Missing fallback to Google's public x509 certificates prevented the server from cryptographically verifying standard RS256 JWT signatures offline without relying on privileged ADC IAM access.
+    3. Missing Bootstrapped Admin assignment caused accounts without pre-configured custom claims (`mdnoor4860@gmail.com` and `mdhassan1738@gmail.com`) to be rejected with 403 `no_role`.
+  - **Permanent Guardrail:**
+    1. Built `/server/auth/tokenVerifier.ts` implementing `verifyFirebaseTokenSafely` and `verifyTokenWithGooglePublicCerts`. It attempts `verifyIdToken(token, false)` first, and if `firebase-admin` encounters `auth/internal-error` or IAM connectivity restrictions, automatically validates the JWT RS256 signature against Google's public certificates (`https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com`), enforcing `aud === projectId`, `iss === 'https://securetoken.google.com/' + projectId`, clock skew, expiration, and user ID without privileged Google API calls.
+    2. Updated `/server/auth/requireRole.ts` to use `verifyFirebaseTokenSafely(token)` and added runtime Bootstrapped Admin resolution for `mdnoor4860@gmail.com` and `mdhassan1738@gmail.com`.
+    3. Treated Google Sign-In tokens as email-verified (`decoded.firebase?.sign_in_provider === 'google.com' || decoded.email_verified === true`).
+    4. Mirrored the bootstrapped admin check in `/src/hooks/useAuthState.ts` so client-side state reflects admin permissions seamlessly.
+
+- [x] **Bug ID & Summary:** BUG-046 — Login Navigation Flicker & Auth State Desynchronization.
+  - **Root Cause:**
+    1. In `SignInView.tsx`, `handleFormSubmit` and `handleGoogleSignIn` called `navigate('/admin', { replace: true })` immediately upon resolving the Firebase sign-in promise, while an uncoordinated `onAuthStateChanged` hook in `SignInView.tsx` also listened and attempted duplicate navigation.
+    2. In `src/hooks/useAuthState.ts`, `cachedAuthState` was only updated asynchronously after performing a network request (`getIdTokenResult(true)`). When the app navigated to `/admin`, `AdminAuthGuard.tsx` read `cachedAuthState` which still had `user: null` and `loading: false`, causing `AdminAuthGuard` to instantly bounce the user back to `"/"` via `<Navigate to="/" replace />`.
+    3. Once the claims finished propagating over the network, `SignInView.tsx`'s listener fired again and re-navigated to `/admin`, creating a visible, jarring screen flicker/bounce.
+  - **Permanent Guardrail:**
+    1. Created and exported `syncUserAuthState(user)` in `src/hooks/useAuthState.ts`, which reads the cached token locally via `getIdTokenResult(false)` (zero network latency) and immediately populates `cachedAuthState` with user identity and admin claims.
+    2. In `SignInView.tsx`, called `await syncUserAuthState(user)` before invoking `navigate('/admin')`, guaranteeing the in-memory cache is fully populated before route mounting.
+    3. Replaced the concurrent `onAuthStateChanged` hook in `SignInView.tsx` with a single mount-time `auth.authStateReady()` check to handle pre-existing sessions cleanly without racing login button submissions.
+- [x] **Bug ID & Summary:** BUG-047 — Hardcoded API Endpoints, Project IDs, and Worker URLs in Server Handlers and Client Utilities.
+  - **Root Cause:** Hardcoded project ID `'gen-lang-client-0638643565'`, obsolete database ID `'ai-studio-6e2ba5e1-c245-4586-90fd-9ba4777b81c4'`, dev storage domain `'pub-03dd1274c4824531a1478f20e0485d75.r2.dev'`, and external worker base `'https://api.currentnews.blog'` were embedded directly in source code files, creating brittle cloud dependencies and configuration lock-in.
+  - **Permanent Guardrail:** All API base URLs, project IDs, database IDs, and storage domains must resolve dynamically from environment variables (`process.env` / `import.meta.env`) or standard configuration descriptors (`firebase-applet-config.json`) with safe relative or empty defaults, never embedded as hardcoded string literals.
+

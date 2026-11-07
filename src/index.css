@@ -1,13 +1,33 @@
-@import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Baloo+2:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&family=Syne:wght@700;800&family=Space+Mono:wght@400;700&display=swap');
 @import "tailwindcss";
 
 @variant dark (&:where(.dark, .dark *));
+
+::selection {
+  background: #B22222;
+  color: #F8F7F4;
+}
 
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Space Grotesk", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
   --font-baloo: "Baloo 2", "Baloo", cursive, system-ui, sans-serif;
+  --font-syne: "Syne", sans-serif;
+  --font-space-mono: "Space Mono", monospace;
+  --font-cormorant: "Cormorant Garamond", Georgia, serif;
+}
+
+.font-cormorant {
+  font-family: "Cormorant Garamond", Georgia, serif;
+}
+
+.font-syne {
+  font-family: "Syne", sans-serif;
+}
+
+.font-space-mono {
+  font-family: "Space Mono", monospace;
 }
 
 .font-baloo {

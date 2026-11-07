@@ -215,27 +215,15 @@ export async function handleGetWriters(_req: Request, res: Response) {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('Cache-Control', 'public, max-age=3600');
 
-  const envVal = process.env.VITE_WRITERS || process.env.WRITERS || '';
-  let writers: string[] = [];
-
-  if (envVal.trim().length > 0) {
-    writers = envVal
-      .split(',')
-      .map(w => w.trim())
-      .filter(w => w.length > 0);
-  }
-
-  if (writers.length === 0) {
-    writers = [
-      'Current News',
-      'Current News Staff Report',
-      'Investigative Editorial Bureau',
-      'Chief Political Correspondent',
-      'Technology & Science Desk',
-      'Global Affairs Dispatch',
-      'Chronicle Desk'
-    ];
-  }
+  const writers = [
+    'Current News',
+    'Current News Staff Report',
+    'Investigative Editorial Bureau',
+    'Chief Political Correspondent',
+    'Technology & Science Desk',
+    'Global Affairs Dispatch',
+    'Chronicle Desk'
+  ];
 
   return res.status(200).json({
     success: true,

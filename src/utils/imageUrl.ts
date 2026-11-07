@@ -5,9 +5,9 @@
  * and R2 direct dev domain (pub-03dd1274c4824531a1478f20e0485d75.r2.dev).
  */
 
-export const R2_CUSTOM_DOMAIN = 'media.currentnews.blog';
-export const R2_DEV_DOMAIN = 'pub-03dd1274c4824531a1478f20e0485d75.r2.dev';
-export const DEFAULT_BRAND_EMBLEM = 'https://i.imgur.com/gFgShoZ.jpeg';
+export const R2_CUSTOM_DOMAIN = ((import.meta as any).env?.VITE_R2_PUBLIC_DOMAIN as string) || 'media.currentnews.blog';
+export const R2_DEV_DOMAIN = ((import.meta as any).env?.VITE_R2_DEV_DOMAIN as string) || '';
+export const DEFAULT_BRAND_EMBLEM = '/CurrentNews.png';
 import { webUrl } from './webBase';
 
 /**
@@ -272,8 +272,8 @@ export function sanitizePostImages<T extends {
       'https://media.currentnews.blog/'
     );
     sanitized.content = sanitized.content.replace(
-      /https:\/\/https\/\/pub-[a-zA-Z0-9]+\.r2\.dev\//g,
-      'https://pub-03dd1274c4824531a1478f20e0485d75.r2.dev/'
+      /https:\/\/https\/\/(pub-[a-zA-Z0-9]+\.r2\.dev)\//g,
+      'https://$1/'
     );
   }
 

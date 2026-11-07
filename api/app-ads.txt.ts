@@ -12,6 +12,6 @@ export default function handler(req: Request, res: Response) {
     return res.status(200).end();
   }
 
-  const pubId = 'pub-5865716270182311';
+  const pubId = (process.env.ADMOB_PUB_ID || process.env.ADSENSE_PUB_ID || 'pub-5865716270182311').trim();
   return res.status(200).send(`google.com, ${pubId}, DIRECT, f08c47fec0942fa0\n`);
 }

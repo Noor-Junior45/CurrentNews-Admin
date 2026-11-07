@@ -161,10 +161,10 @@ export default function AdminNavbar(): React.JSX.Element {
     setIsProfileOpen(false);
     try {
       await signOut(auth);
-      navigate('/signin', { replace: true });
+      navigate('/', { replace: true });
     } catch (err) {
       console.error('Sign out error:', err);
-      navigate('/signin', { replace: true });
+      navigate('/', { replace: true });
     }
   };
 

@@ -5,15 +5,15 @@ graph TD
     Client["Browser Client (admin.currentnews.blog)"]
     
     subgraph FrontendRoutes["React Router SPA (src/App.tsx)"]
-        RootRoute["/ (Root)"] -->|Redirect| AdminRoute["/admin"]
-        Wildcard["/* (Unknown)"] -->|Redirect| AdminRoute
+        RootRoute["/ (Root Landing Page)"] --> SignInView["SignInView.tsx (Landing & Login)"]
+        SignInRoute["/signin (/login)"] --> SignInView
+        Wildcard["/* (Unknown)"] -->|Redirect| RootRoute
         
-        AdminRoute --> Guard["AdminAuthGuard.tsx"]
+        AdminRoute["/admin"] --> Guard["AdminAuthGuard.tsx"]
         DraftRoute["/admin/draft"] --> Guard
         PubsRoute["/admin/publications"] --> Guard
         AudienceRoute["/admin/audience"] --> Guard
         
-        SignInRoute["/signin (/login)"] --> SignInView["SignInView.tsx"]
         PrivacyRoute["/privacy"] --> PrivacyView["PrivacyView.tsx"]
         TermsRoute["/terms"] --> TermsView["TermsView.tsx"]
         

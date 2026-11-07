@@ -72,7 +72,7 @@ export default async function handler(req: Request, res: Response) {
     };
 
     const customDomain = sanitizeDomain(process.env.R2_PUBLIC_DOMAIN, 'media.currentnews.blog');
-    const r2DevDomain = sanitizeDomain(process.env.R2_DEV_DOMAIN, 'pub-03dd1274c4824531a1478f20e0485d75.r2.dev');
+    const r2DevDomain = sanitizeDomain(process.env.R2_DEV_DOMAIN, '');
 
     let ext = 'jpg';
     if (mimeType === 'image/png') ext = 'png';

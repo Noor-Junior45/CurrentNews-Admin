@@ -1,4 +1,6 @@
 import type { Request, Response } from 'express';
+import fs from 'fs';
+import path from 'path';
 
 export default async function handler(req: Request, res: Response) {
   if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -16,11 +18,23 @@ export default async function handler(req: Request, res: Response) {
     const protocol = req.headers['x-forwarded-proto'] || 'https';
     const host = req.headers.host || 'www.currentnews.blog';
     const siteUrl = `${protocol}://${host.includes('localhost') ? host : 'www.currentnews.blog'}`;
-    
-    // Configuration extracted dynamically
+
+    // Configuration extracted dynamically from env or firebase-applet-config.json
+    let projectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || '';
+    let firestoreDatabaseId = process.env.FIRESTORE_DATABASE_ID || process.env.VITE_FIREBASE_DATABASE_ID || '';
+
+    try {
+      const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+      if (fs.existsSync(configPath)) {
+        const cfg = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+        projectId = projectId || cfg.projectId || '';
+        firestoreDatabaseId = firestoreDatabaseId || cfg.firestoreDatabaseId || '(default)';
+      }
+    } catch (_) {}
+
     const config = {
-      projectId: "gen-lang-client-0638643565",
-      firestoreDatabaseId: "ai-studio-6e2ba5e1-c245-4586-90fd-9ba4777b81c4"
+      projectId: projectId || '(default)',
+      firestoreDatabaseId: firestoreDatabaseId || '(default)'
     };
 
     const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${config.projectId}/databases/${config.firestoreDatabaseId}/documents:runQuery`;

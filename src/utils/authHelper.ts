@@ -7,6 +7,7 @@ export interface AuthResult {
   user?: any;
   cancelled?: boolean;
   error?: string;
+  code?: string;
 }
 
 interface NativeGoogleAuthPlugin {
@@ -135,10 +136,26 @@ export async function signInWithGoogleSafe(): Promise<AuthResult> {
       };
     }
 
+    if (
+      code === 'auth/unauthorized-domain' ||
+      message.includes('auth/unauthorized-domain') ||
+      message.includes('unauthorized-domain')
+    ) {
+      const hostname = typeof window !== 'undefined' ? window.location.hostname : 'current domain';
+      console.warn(`[Auth Warning] Domain "${hostname}" is not in Firebase Auth authorized domains list for project "${auth.app.options.projectId}".`);
+      return {
+        success: false,
+        cancelled: false,
+        code: 'auth/unauthorized-domain',
+        error: `Google Sign-In is not allowed from "${hostname}". Please add "${hostname}" to your Firebase Console under Authentication > Settings > Authorized domains, or sign in using your Email & Password.`,
+      };
+    }
+
     console.warn('[Auth Warning]:', err);
     return {
       success: false,
       cancelled: false,
+      code,
       error: message,
     };
   } finally {

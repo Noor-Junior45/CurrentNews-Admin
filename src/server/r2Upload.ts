@@ -137,10 +137,10 @@ export async function handleR2Upload(req: Request, res: Response): Promise<void>
         await client.send(command);
 
         const customDomain = sanitizeDomain(process.env.R2_PUBLIC_DOMAIN, 'media.currentnews.blog');
-        const r2DevDomain = sanitizeDomain(process.env.R2_DEV_DOMAIN, 'pub-03dd1274c4824531a1478f20e0485d75.r2.dev');
+        const r2DevDomain = sanitizeDomain(process.env.R2_DEV_DOMAIN, '');
 
         publicUrl = `https://${customDomain}/${key}`;
-        fallbackUrl = `https://${r2DevDomain}/${key}`;
+        fallbackUrl = r2DevDomain ? `https://${r2DevDomain}/${key}` : publicUrl;
       } catch (r2Error) {
         console.warn('R2 S3 storage push notice:', r2Error);
       }
@@ -160,10 +160,10 @@ export async function handleR2Upload(req: Request, res: Response): Promise<void>
         });
         if (cfRes.ok) {
           const customDomain = sanitizeDomain(process.env.R2_PUBLIC_DOMAIN, 'media.currentnews.blog');
-          const r2DevDomain = sanitizeDomain(process.env.R2_DEV_DOMAIN, 'pub-03dd1274c4824531a1478f20e0485d75.r2.dev');
+          const r2DevDomain = sanitizeDomain(process.env.R2_DEV_DOMAIN, '');
 
           publicUrl = `https://${customDomain}/${key}`;
-          fallbackUrl = `https://${r2DevDomain}/${key}`;
+          fallbackUrl = r2DevDomain ? `https://${r2DevDomain}/${key}` : publicUrl;
         }
       } catch (cfErr) {
         console.warn('R2 REST API upload notice:', cfErr);

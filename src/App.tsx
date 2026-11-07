@@ -33,8 +33,8 @@ export default function App() {
       <div className="flex flex-col min-h-screen bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 overflow-x-hidden" id="app-root-container">
         <main className="flex-grow">
           <Routes>
-            {/* 1. Root redirect directly to Admin Editorial Bureau */}
-            <Route path="/" element={<Navigate to="/admin" replace />} />
+            {/* 1. Root landing page: Login / Editorial Authentication Portal */}
+            <Route path="/" element={<SignInView />} />
 
             {/* 2. Persistent Admin Layout with Permanent Navbar & Profile controls */}
             <Route element={<AdminLayout />}>
@@ -44,16 +44,16 @@ export default function App() {
               <Route path="/admin/audience" element={<AudienceRegistryView />} />
             </Route>
 
-            {/* 3. Authentication Stage */}
+            {/* 3. Authentication Stage Aliases */}
             <Route path="/signin" element={<SignInView />} />
-            <Route path="/login" element={<Navigate to="/signin" replace />} />
+            <Route path="/login" element={<Navigate to="/" replace />} />
 
             {/* 4. Legal Codex & Platform Standards */}
             <Route path="/privacy" element={<PrivacyView />} />
             <Route path="/terms" element={<TermsView />} />
 
-            {/* 5. Fallback Route: Redirect everything else to Admin */}
-            <Route path="*" element={<Navigate to="/admin" replace />} />
+            {/* 5. Fallback Route: Redirect everything else to root landing */}
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>
       </div>

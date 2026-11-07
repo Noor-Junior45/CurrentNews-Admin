@@ -16,20 +16,5 @@ export const DEFAULT_WRITERS = [
 ];
 
 export function getAvailableWriters(): string[] {
-  try {
-    const envVal = (import.meta as any).env?.VITE_WRITERS || '';
-    if (typeof envVal === 'string' && envVal.trim().length > 0) {
-      const parsed = envVal
-        .split(',')
-        .map((w: string) => w.trim())
-        .filter((w: string) => w.length > 0);
-      if (parsed.length > 0) {
-        return parsed;
-      }
-    }
-  } catch (err) {
-    console.debug('Failed to read VITE_WRITERS from environment:', err);
-  }
-
   return DEFAULT_WRITERS;
 }

@@ -877,11 +877,14 @@ export async function getArticleFromR2(postId: string): Promise<any | null> {
 
   // 3. Check Public R2 CDN HTTP URL
   const customBase = getPublicBase();
-  const rawDev = process.env.R2_DEV_DOMAIN || 'pub-03dd1274c4824531a1478f20e0485d75.r2.dev';
+  const rawDev = process.env.R2_DEV_DOMAIN || '';
   const devHost = rawDev.replace(/^[a-zA-Z]+:\/\//, '').split('/')[0].trim();
-  const devBase = `https://${devHost || 'pub-03dd1274c4824531a1478f20e0485d75.r2.dev'}`;
+  const candidateBases = [customBase];
+  if (devHost) {
+    candidateBases.push(`https://${devHost}`);
+  }
 
-  for (const base of [customBase, devBase]) {
+  for (const base of candidateBases) {
     try {
       const cdnUrl = `${base}/articles/${postId}.json`;
       const res = await fetch(cdnUrl, { signal: AbortSignal.timeout(3000) });
@@ -993,11 +996,14 @@ export async function getFeedFromR2(): Promise<any[]> {
 
   // 2. Try Public R2 CDN
   const customBase = getPublicBase();
-  const rawDev = process.env.R2_DEV_DOMAIN || 'pub-03dd1274c4824531a1478f20e0485d75.r2.dev';
+  const rawDev = process.env.R2_DEV_DOMAIN || '';
   const devHost = rawDev.replace(/^[a-zA-Z]+:\/\//, '').split('/')[0].trim();
-  const devBase = `https://${devHost || 'pub-03dd1274c4824531a1478f20e0485d75.r2.dev'}`;
+  const candidateBases = [customBase];
+  if (devHost) {
+    candidateBases.push(`https://${devHost}`);
+  }
 
-  for (const base of [customBase, devBase]) {
+  for (const base of candidateBases) {
     try {
       const cdnUrl = `${base}/articles/feed.json`;
       const res = await fetch(cdnUrl, { signal: AbortSignal.timeout(3000) });
@@ -1050,232 +1056,7 @@ export async function syncArticlesToR2(posts: any[]): Promise<{ synced: number; 
   return { synced: count, total: posts.length };
 }
 
-/**
- * Express handler for POST /api/articles/save
- */
-export async function handleSaveArticle(req: Request, res: Response) {
-  try {
-    const post = req.body;
-    if (!post || !post.title) {
-      return res.status(400).json({ success: false, error: 'Title and content are required' });
-    }
 
-    if (!post.id) {
-      post.id = 'post_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
-    }
-    if (!post.createdAt) {
-      post.createdAt = new Date().toISOString();
-    }
-    post.updatedAt = new Date().toISOString();
-
-    const result = await saveArticleToR2(post);
-
-    // Sync to Firestore via REST API if Authorization header is provided
-    const authHeader = req.headers.authorization;
-    if (authHeader) {
-      saveArticleToFirestoreRest(post, authHeader).catch(err => {
-        console.debug('[Firestore REST Sync notice]:', err);
-      });
-    }
-
-    // Trigger external caches invalidation so /api/posts reflects new article
-    if (onArticleDeletedHook) {
-      try {
-        onArticleDeletedHook();
-      } catch (_) {}
-    }
-
-    return res.status(200).json({
-      success: true,
-      post,
-      url: result.url
-    });
-  } catch (error: any) {
-    console.error('[API /api/articles/save Error]:', error);
-    return res.status(500).json({ success: false, error: error?.message || 'Failed to save article to Cloudflare R2' });
-  }
-}
-
-/**
- * Express handler for DELETE /api/articles/:id
- */
-export async function handleDeleteArticle(req: Request, res: Response) {
-  try {
-    const id = req.params.id;
-    if (!id) {
-      return res.status(400).json({ success: false, error: 'Article ID is required' });
-    }
-    await deleteArticleFromR2(id);
-    return res.status(200).json({ success: true, message: 'Article deleted from Cloudflare R2' });
-  } catch (error: any) {
-    console.error('[API /api/articles/:id Delete Error]:', error);
-    return res.status(500).json({ success: false, error: error?.message || 'Failed to delete article from Cloudflare R2' });
-  }
-}
-
-/**
- * Express handler for POST /api/articles/sync
- * Bulk-syncs existing articles to Cloudflare R2
- */
-export async function handleSyncArticles(req: Request, res: Response) {
-  try {
-    const { posts } = req.body;
-    if (!Array.isArray(posts) || posts.length === 0) {
-      return res.status(400).json({ success: false, error: 'Array of posts required' });
-    }
-    const result = await syncArticlesToR2(posts);
-    return res.status(200).json({
-      success: true,
-      message: `Successfully synced ${result.synced} of ${result.total} articles to Cloudflare R2`,
-      ...result
-    });
-  } catch (error: any) {
-    console.error('[API /api/articles/sync Error]:', error);
-    return res.status(500).json({ success: false, error: error?.message || 'Failed to sync articles to Cloudflare R2' });
-  }
-}
-
-/**
- * Express handler for POST /api/articles/migrate-images
- * Scans all existing articles in data/articles and data/feed.json, decodes all base64 images,
- * uploads them as img/{postId}-{n}.webp, rewrites full articles, and rebuilds the light feed.json.
- */
-export async function handleMigrateImages(_req: Request, res: Response) {
-  try {
-    const localDir = getLocalDataDir();
-    const files = fs.existsSync(localDir) ? fs.readdirSync(localDir).filter(f => f.endsWith('.json')) : [];
-
-    const feedFile = path.join(process.cwd(), 'data', 'feed.json');
-    let feedPosts: any[] = [];
-    if (fs.existsSync(feedFile)) {
-      try {
-        const parsed = JSON.parse(fs.readFileSync(feedFile, 'utf-8'));
-        if (Array.isArray(parsed)) feedPosts = parsed;
-      } catch (e) {}
-    }
-
-    const postMap = new Map<string, any>();
-    for (const p of feedPosts) {
-      if (p && p.id) postMap.set(p.id, p);
-    }
-
-    for (const file of files) {
-      try {
-        const raw = fs.readFileSync(path.join(localDir, file), 'utf-8');
-        const p = JSON.parse(raw);
-        if (p && p.id) {
-          if (!postMap.has(p.id) || (p.content && !postMap.get(p.id).content)) {
-            postMap.set(p.id, p);
-          } else {
-            postMap.set(p.id, { ...postMap.get(p.id), ...p });
-          }
-        }
-      } catch (e) {}
-    }
-
-    const allPosts = Array.from(postMap.values());
-    let totalMigratedImages = 0;
-    const processedArticles: any[] = [];
-
-    const client = getR2Client();
-    const bucket = getR2BucketName();
-
-    for (const post of allPosts) {
-      const { post: cleanedPost, migratedCount } = await processAndExtractBase64Images(post);
-      totalMigratedImages += migratedCount;
-
-      // Extract excerpt if missing
-      if (!cleanedPost.excerpt) {
-        cleanedPost.excerpt = extractPlainExcerpt(cleanedPost.content || '');
-      }
-
-      // Save updated full article JSON to local disk
-      const filePath = path.join(localDir, `${cleanedPost.id}.json`);
-      fs.writeFileSync(filePath, JSON.stringify(cleanedPost, null, 2), 'utf-8');
-
-      // Upload full article to R2
-      let articleUploaded = false;
-      const articleBody = Buffer.from(JSON.stringify(cleanedPost));
-      if (client) {
-        try {
-          await client.send(new PutObjectCommand({
-            Bucket: bucket,
-            Key: `articles/${cleanedPost.id}.json`,
-            Body: articleBody,
-            ContentType: 'application/json; charset=utf-8',
-            CacheControl: 'public, max-age=60, s-maxage=300, stale-while-revalidate=86400',
-          }));
-          articleUploaded = true;
-        } catch (r2Err) {
-          console.warn(`[Migrate] Failed to upload articles/${cleanedPost.id}.json (S3):`, r2Err);
-        }
-      }
-      if (!articleUploaded) {
-        await r2RestPut(
-          `articles/${cleanedPost.id}.json`,
-          articleBody,
-          'application/json; charset=utf-8',
-          'public, max-age=60, s-maxage=300, stale-while-revalidate=86400'
-        );
-      }
-
-      processedArticles.push(cleanedPost);
-    }
-
-    // Build light feed index
-    const lightFeed = processedArticles
-      .filter(p => p.status !== 'draft')
-      .map(toLightArticle)
-      .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-
-    inMemoryFeedCache = lightFeed;
-    inMemoryFeedTimestamp = Date.now();
-
-    // Save light feed.json locally
-    fs.writeFileSync(feedFile, JSON.stringify(lightFeed), 'utf-8');
-    const newFeedSize = fs.statSync(feedFile).size;
-
-    // Upload light feed.json to R2
-    let feedUploaded = false;
-    const feedBody = Buffer.from(JSON.stringify(lightFeed));
-    if (client) {
-      try {
-        await client.send(new PutObjectCommand({
-          Bucket: bucket,
-          Key: 'articles/feed.json',
-          Body: feedBody,
-          ContentType: 'application/json; charset=utf-8',
-          CacheControl: 'public, max-age=30, s-maxage=60, stale-while-revalidate=300',
-        }));
-        feedUploaded = true;
-      } catch (r2Err) {
-        console.warn('[Migrate] Failed to upload light articles/feed.json to R2 (S3):', r2Err);
-      }
-    }
-    if (!feedUploaded) {
-      await r2RestPut(
-        'articles/feed.json',
-        feedBody,
-        'application/json; charset=utf-8',
-        'public, max-age=30, s-maxage=60, stale-while-revalidate=300'
-      );
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: `Migration complete. Processed ${processedArticles.length} articles, migrated ${totalMigratedImages} base64 images.`,
-      articlesProcessed: processedArticles.length,
-      imagesMigrated: totalMigratedImages,
-      feedSizeKb: Math.round(newFeedSize / 1024),
-    });
-  } catch (err: any) {
-    console.error('[API /api/articles/migrate-images Error]:', err);
-    return res.status(500).json({
-      success: false,
-      error: err?.message || 'Migration failed',
-    });
-  }
-}
 
 /**
  * Startup bootloader to ensure Cloudflare R2 articles feed is warm and light feed is loaded.

@@ -29,7 +29,23 @@ if (!['admin', 'writer', 'none'].includes(role)) {
   process.exit(1);
 }
 
-const projectId = process.env.FIREBASE_PROJECT_ID || 'gen-lang-client-0638643565';
+import fs from 'fs';
+import path from 'path';
+
+function getProjectId() {
+  if (process.env.FIREBASE_PROJECT_ID) return process.env.FIREBASE_PROJECT_ID.trim();
+  if (process.env.GCLOUD_PROJECT) return process.env.GCLOUD_PROJECT.trim();
+  try {
+    const cfgPath = path.join(process.cwd(), 'firebase-applet-config.json');
+    if (fs.existsSync(cfgPath)) {
+      const parsed = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
+      if (parsed.projectId) return parsed.projectId;
+    }
+  } catch (_) {}
+  return '';
+}
+
+const projectId = getProjectId();
 
 if (getApps().length === 0) {
   try {
