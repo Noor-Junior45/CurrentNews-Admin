@@ -6,6 +6,7 @@ export interface AuthenticatedUser {
   uid: string;
   email?: string;
   role: 'admin' | 'writer' | string;
+  name?: string;
 }
 
 declare global {
@@ -114,7 +115,8 @@ export function requireRole(...allowed: string[]) {
     req.user = {
       uid: decoded.uid,
       email: decoded.email,
-      role: role
+      role: role,
+      name: decoded.name || decoded.displayName || undefined
     };
 
     return next();

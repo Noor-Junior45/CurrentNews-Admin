@@ -192,18 +192,24 @@ async function startServer() {
       fileSize: 20 * 1024 * 1024, // 20MB max file size
     },
     fileFilter: (_req, file, cb) => {
-      const isImageMime = file.mimetype && (
-        file.mimetype.startsWith('image/') ||
-        file.mimetype === 'application/octet-stream' ||
-        file.mimetype === 'application/x-zip-compressed' ||
-        file.mimetype === 'binary/octet-stream'
-      );
-      const hasImageExt = /\.(jpe?g|png|webp|gif|svg|bmp|tiff|heic|heif|avif)$/i.test(file.originalname || '');
+      const originalName = file.originalname || '';
+      const mime = (file.mimetype || '').toLowerCase();
 
-      if (isImageMime || hasImageExt) {
+      // Reject SVG by MIME or extension
+      if (mime === 'image/svg+xml' || /\.svg$/i.test(originalName)) {
+        return cb(new Error('SVG files are strictly prohibited. Only JPEG, PNG, WebP, GIF, and AVIF are permitted.'));
+      }
+
+      const isAllowedMime = [
+        'image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif', 'image/avif',
+        'application/octet-stream', 'binary/octet-stream'
+      ].includes(mime);
+      const hasAllowedExt = /\.(jpe?g|png|webp|gif|avif)$/i.test(originalName);
+
+      if (isAllowedMime || hasAllowedExt) {
         cb(null, true);
       } else {
-        cb(new Error(`Only image files (JPEG, PNG, WebP, GIF, SVG, AVIF, HEIC) are permitted. Received: ${file.mimetype || 'unknown'}`));
+        cb(new Error(`Only image files (JPEG, PNG, WebP, GIF, AVIF) are permitted. Received: ${file.mimetype || 'unknown'}`));
       }
     },
   });

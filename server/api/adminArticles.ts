@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import { z } from 'zod';
 import sanitizeHtml from 'sanitize-html';
 import { query, isNeonConfigured } from '../db/neon.ts';
+import { adminAuth } from '../auth/firebaseAdmin.ts';
 import { saveArticleToR2, deleteArticleFromR2, getFeedFromR2, loadLocalFeed, extractPlainExcerpt, getArticleFromR2 } from '../../src/server/r2Articles.ts';
 import { slugify } from '../../src/types.ts';
 import { syncSingleArticle, unpublishArticleFromD1, syncPendingArticles } from '../sync/d1Publisher.ts';
@@ -23,36 +24,53 @@ export function sanitizeArticleContent(html: string): string {
       'div', 'span', 'pre', 'code', 'table', 'tbody', 'tr', 'td', 'th'
     ],
     allowedAttributes: {
-      a: ['href', 'target', 'rel'],
+      a: ['href', 'target', 'rel', 'class'],
       img: ['src', 'alt', 'title', 'width', 'height', 'loading', 'class'],
       iframe: ['src', 'width', 'height', 'frameborder', 'allow', 'allowfullscreen', 'title'],
-      div: ['class', 'style'],
-      span: ['class', 'style'],
-      p: ['class', 'style'],
+      div: ['class'],
+      span: ['class'],
+      p: ['class'],
       figure: ['class'],
       figcaption: ['class']
+    },
+    allowedClasses: {
+      '*': [
+        /^ql-align-[a-z0-9_-]+$/,
+        /^ql-size-[a-z0-9_-]+$/,
+        /^ql-font-[a-z0-9_-]+$/,
+        /^ql-direction-[a-z0-9_-]+$/,
+        /^ql-indent-[0-9]+$/,
+        'ql-syntax',
+        'ql-video'
+      ]
     },
     allowedIframeHostnames: [
       'www.youtube.com',
       'youtube.com',
       'www.youtube-nocookie.com',
-      'youtube-nocookie.com',
-      'www.facebook.com',
-      'facebook.com'
+      'youtube-nocookie.com'
     ],
     allowedSchemes: ['http', 'https'],
     allowedSchemesByTag: {
-      img: ['http', 'https', 'data'],
+      img: ['https'],
       iframe: ['https']
     },
     transformTags: {
-      a: (tagName, attribs) => ({
-        tagName,
-        attribs: {
+      a: (tagName, attribs) => {
+        const cleanAttribs: Record<string, string> = {
           ...attribs,
-          rel: 'noopener noreferrer'
+          rel: 'noopener noreferrer nofollow'
+        };
+        if (cleanAttribs.target) {
+          if (cleanAttribs.target !== '_blank') {
+            delete cleanAttribs.target;
+          }
         }
-      })
+        return {
+          tagName,
+          attribs: cleanAttribs
+        };
+      }
     }
   });
 }
@@ -175,144 +193,298 @@ export async function handleAdminCreateOrUpdateArticle(req: Request, res: Respon
   }
 
   const data = parseResult.data;
-  const isUpdate = Boolean(data.id);
-  const articleId = data.id || ('post_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8));
+  const isAdmin = user.role === 'admin';
+
+  // Only admins may set status = 'published'. Writers may only save 'draft'.
+  if (!isAdmin && data.status !== 'draft') {
+    return res.status(403).json({
+      success: false,
+      error: 'Forbidden: Only administrators can publish articles',
+      code: 'forbidden'
+    });
+  }
+
+  // Never accept authorName from a writer. Take it from the staff pen name (staff table, or fall back to user's display name). Admins may override it.
+  let authorName: string;
+  if (isAdmin && data.authorName && data.authorName.trim()) {
+    authorName = data.authorName.trim();
+  } else {
+    let staffPenName: string | null = null;
+    if (isNeonConfigured()) {
+      try {
+        const staffRes = await query('SELECT pen_name FROM staff WHERE uid = $1', [user.uid]);
+        if (staffRes.rows.length > 0 && staffRes.rows[0].pen_name && staffRes.rows[0].pen_name.trim()) {
+          staffPenName = staffRes.rows[0].pen_name.trim();
+        }
+      } catch (err) {
+        console.warn('[Admin API] Notice: could not load staff pen name:', err);
+      }
+    }
+
+    let displayName = user.name?.trim() || '';
+    if (!displayName) {
+      try {
+        const fbUser = await adminAuth.getUser(user.uid);
+        if (fbUser.displayName && fbUser.displayName.trim()) {
+          displayName = fbUser.displayName.trim();
+        }
+      } catch (_) {}
+    }
+
+    authorName = staffPenName || displayName || (user.email ? user.email.split('@')[0] : 'Current News');
+  }
+
+  // Determine if this request is an UPDATE vs an INSERT (new article)
+  const isDraftComposerNewPost = (body: any, id: string): boolean => {
+    if (!id || !id.startsWith('post_')) return false;
+    if (
+      body.createdAt &&
+      body.updatedAt &&
+      body.createdAt === body.updatedAt &&
+      Number(body.likes || 0) === 0 &&
+      Number(body.dislikes || 0) === 0
+    ) {
+      return true;
+    }
+    return false;
+  };
+
+  let isUpdate: boolean;
+  if (req.body.isUpdate !== undefined) {
+    isUpdate = Boolean(req.body.isUpdate);
+  } else if (req.body.action) {
+    isUpdate = req.body.action === 'update';
+  } else if (req.query.action) {
+    isUpdate = req.query.action === 'update';
+  } else if (req.query.isUpdate !== undefined) {
+    isUpdate = req.query.isUpdate === 'true';
+  } else if (!data.id) {
+    isUpdate = false;
+  } else if (isDraftComposerNewPost(req.body, data.id)) {
+    isUpdate = false;
+  } else if (data.version === undefined) {
+    isUpdate = false;
+  } else {
+    isUpdate = true;
+  }
+
+  const articleId = data.id || ('post_' + Date.now() + '_' + crypto.randomBytes(4).toString('hex'));
   const rawSlug = slugify(data.title) || articleId;
-  const slug = `${rawSlug}-${articleId.slice(-6)}`;
+  let slug = `${rawSlug}-${articleId.slice(-6)}`;
   const sanitizedContent = sanitizeArticleContent(data.content);
   const excerpt = extractPlainExcerpt(sanitizedContent, 200);
-  const authorName = data.authorName?.trim() || 'Current News';
   const now = new Date();
 
-  // If Neon is configured, verify writer authorization & optimistic concurrency
-  if (isNeonConfigured() && isUpdate) {
-    const existingRes = await query('SELECT id, author_uid, status, version FROM articles WHERE id = $1', [articleId]);
-    if (existingRes.rows.length > 0) {
-      const existing = existingRes.rows[0];
-      if (user.role === 'writer' && existing.author_uid !== user.uid) {
-        return res.status(403).json({
-          success: false,
-          error: 'Forbidden: Writers may only edit their own articles',
-          code: 'forbidden'
-        });
+  let neonArticle: any = null;
+  let syncError: string | null = null;
+  let syncedAt: Date | null = null;
+  let rawDbRow: any = null;
+
+  if (isNeonConfigured()) {
+    const publishedAt = data.status === 'published' ? now : null;
+
+    if (isUpdate) {
+      const expectedVersion = data.version ?? 1;
+
+      const executeUpdate = async (slugToUse: string) => {
+        const updateSql = `
+          UPDATE articles SET
+            slug = $2,
+            title = $3,
+            excerpt = $4,
+            content = $5,
+            category = $6,
+            hashtags = $7,
+            youtube_url = $8,
+            facebook_url = $9,
+            custom_links = $10,
+            image_url = $11,
+            image_url_fallback = $12,
+            image_urls = $13,
+            image_urls_fallback = $14,
+            image_position = $15,
+            gallery_positions = $16,
+            author_name = $17,
+            status = $18,
+            version = version + 1,
+            sync_pending = true,
+            updated_at = $19,
+            published_at = COALESCE(articles.published_at, $20)
+          WHERE id = $1 AND version = $21 AND (author_uid = $22 OR $23)
+          RETURNING *;
+        `;
+        const values = [
+          articleId,
+          slugToUse,
+          data.title,
+          excerpt,
+          sanitizedContent,
+          data.category,
+          data.hashtags,
+          data.youtubeUrl,
+          data.facebookUrl,
+          data.customLinks,
+          data.imageUrl,
+          data.imageUrlFallback,
+          data.imageUrls,
+          data.imageUrlsFallback,
+          data.imagePosition,
+          data.galleryPositions,
+          authorName,
+          data.status,
+          now,
+          publishedAt,
+          expectedVersion,
+          user.uid,
+          isAdmin
+        ];
+        return query(updateSql, values);
+      };
+
+      let dbRes;
+      try {
+        dbRes = await executeUpdate(slug);
+      } catch (err: any) {
+        if (err?.code === '23505') {
+          // Slug UNIQUE constraint violation: retry once with random suffix
+          slug = `${slug}-${crypto.randomBytes(3).toString('hex')}`;
+          try {
+            dbRes = await executeUpdate(slug);
+          } catch (retryErr: any) {
+            console.error('[Admin API] Neon update retry error:', retryErr);
+            return res.status(500).json({
+              success: false,
+              error: 'Database update failed on slug retry: ' + (retryErr?.message || 'Unique constraint error')
+            });
+          }
+        } else {
+          console.error('[Admin API] Neon update error:', err);
+          return res.status(500).json({
+            success: false,
+            error: 'Database update failed: ' + (err?.message || 'Internal error')
+          });
+        }
       }
-      if (typeof data.version === 'number' && typeof existing.version === 'number' && existing.version > data.version) {
+
+      if (dbRes.rows.length === 0) {
+        // Re-select the id to determine exact failure condition
+        const selectRes = await query('SELECT id, author_uid, version FROM articles WHERE id = $1', [articleId]);
+        if (selectRes.rows.length === 0) {
+          return res.status(404).json({
+            success: false,
+            error: 'Article not found',
+            code: 'not_found'
+          });
+        }
+        const existing = selectRes.rows[0];
+        if (!isAdmin && existing.author_uid !== user.uid) {
+          return res.status(403).json({
+            success: false,
+            error: 'Forbidden: You can only edit your own articles',
+            code: 'forbidden'
+          });
+        }
         return res.status(409).json({
           success: false,
           error: 'This article was changed elsewhere, please reload',
           code: 'version_conflict',
           serverVersion: existing.version,
-          clientVersion: data.version
+          clientVersion: expectedVersion
         });
       }
-    }
-  }
 
-  const postPayloadForR2 = {
-    id: articleId,
-    slug,
-    title: data.title,
-    content: sanitizedContent,
-    excerpt,
-    category: data.category,
-    hashtags: data.hashtags,
-    youtubeUrl: data.youtubeUrl,
-    facebookUrl: data.facebookUrl,
-    customLinks: data.customLinks,
-    imageUrl: data.imageUrl,
-    imageUrlFallback: data.imageUrlFallback,
-    imageUrls: data.imageUrls,
-    imageUrlsFallback: data.imageUrlsFallback,
-    imagePosition: data.imagePosition,
-    galleryPositions: data.galleryPositions,
-    authorId: user.uid,
-    authorName,
-    authorEmail: user.email || '',
-    status: data.status,
-    createdAt: now.toISOString(),
-    updatedAt: now.toISOString(),
-  };
-
-  let neonArticle: any = null;
-  let syncError: string | null = null;
-  let syncedAt: Date | null = null;
-
-  if (isNeonConfigured()) {
-    try {
-      const publishedAt = data.status === 'published' ? now : null;
-
-      const upsertSql = `
-        INSERT INTO articles (
-          id, slug, title, excerpt, content, category, hashtags,
-          youtube_url, facebook_url, custom_links,
-          image_url, image_url_fallback, image_urls, image_urls_fallback,
-          image_position, gallery_positions,
-          author_uid, author_name, author_email,
-          status, version, sync_pending, created_at, updated_at, published_at
-        ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7,
-          $8, $9, $10,
-          $11, $12, $13, $14,
-          $15, $16,
-          $17, $18, $19,
-          $20, 1, true, $21, $22, $23
-        )
-        ON CONFLICT (id) DO UPDATE SET
-          slug = EXCLUDED.slug,
-          title = EXCLUDED.title,
-          excerpt = EXCLUDED.excerpt,
-          content = EXCLUDED.content,
-          category = EXCLUDED.category,
-          hashtags = EXCLUDED.hashtags,
-          youtube_url = EXCLUDED.youtube_url,
-          facebook_url = EXCLUDED.facebook_url,
-          custom_links = EXCLUDED.custom_links,
-          image_url = EXCLUDED.image_url,
-          image_url_fallback = EXCLUDED.image_url_fallback,
-          image_urls = EXCLUDED.image_urls,
-          image_urls_fallback = EXCLUDED.image_urls_fallback,
-          image_position = EXCLUDED.image_position,
-          gallery_positions = EXCLUDED.gallery_positions,
-          author_name = EXCLUDED.author_name,
-          status = EXCLUDED.status,
-          version = articles.version + 1,
-          sync_pending = true,
-          updated_at = EXCLUDED.updated_at,
-          published_at = COALESCE(articles.published_at, EXCLUDED.published_at)
-        RETURNING *;
-      `;
-
-      const values = [
-        articleId,
-        slug,
-        data.title,
-        excerpt,
-        sanitizedContent,
-        data.category,
-        data.hashtags,
-        data.youtubeUrl,
-        data.facebookUrl,
-        data.customLinks,
-        data.imageUrl,
-        data.imageUrlFallback,
-        data.imageUrls,
-        data.imageUrlsFallback,
-        data.imagePosition,
-        data.galleryPositions,
-        user.uid,
-        authorName,
-        user.email || '',
-        data.status,
-        now,
-        now,
-        publishedAt
-      ];
-
-      const dbRes = await query(upsertSql, values);
-      const rawDbRow = dbRes.rows[0];
+      rawDbRow = dbRes.rows[0];
       neonArticle = mapRowToArticle(rawDbRow);
+    } else {
+      // INSERT new article
+      const executeInsert = async (slugToUse: string) => {
+        const insertSql = `
+          INSERT INTO articles (
+            id, slug, title, excerpt, content, category, hashtags,
+            youtube_url, facebook_url, custom_links,
+            image_url, image_url_fallback, image_urls, image_urls_fallback,
+            image_position, gallery_positions,
+            author_uid, author_name, author_email,
+            status, version, sync_pending, created_at, updated_at, published_at
+          ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7,
+            $8, $9, $10,
+            $11, $12, $13, $14,
+            $15, $16,
+            $17, $18, $19,
+            $20, 1, true, $21, $22, $23
+          )
+          ON CONFLICT (id) DO NOTHING
+          RETURNING *;
+        `;
+        const values = [
+          articleId,
+          slugToUse,
+          data.title,
+          excerpt,
+          sanitizedContent,
+          data.category,
+          data.hashtags,
+          data.youtubeUrl,
+          data.facebookUrl,
+          data.customLinks,
+          data.imageUrl,
+          data.imageUrlFallback,
+          data.imageUrls,
+          data.imageUrlsFallback,
+          data.imagePosition,
+          data.galleryPositions,
+          user.uid,
+          authorName,
+          user.email || '',
+          data.status,
+          now,
+          now,
+          publishedAt
+        ];
+        return query(insertSql, values);
+      };
 
-      // PART D: Live sync to Cloudflare D1 reader copy
+      let dbRes;
+      try {
+        dbRes = await executeInsert(slug);
+      } catch (err: any) {
+        if (err?.code === '23505') {
+          // Slug UNIQUE constraint violation: retry once with random suffix
+          slug = `${slug}-${crypto.randomBytes(3).toString('hex')}`;
+          try {
+            dbRes = await executeInsert(slug);
+          } catch (retryErr: any) {
+            console.error('[Admin API] Neon insert retry error:', retryErr);
+            return res.status(500).json({
+              success: false,
+              error: 'Database insert failed on slug retry: ' + (retryErr?.message || 'Unique constraint error')
+            });
+          }
+        } else {
+          console.error('[Admin API] Neon insert error:', err);
+          return res.status(500).json({
+            success: false,
+            error: 'Database insert failed: ' + (err?.message || 'Internal error')
+          });
+        }
+      }
+
+      if (dbRes.rows.length === 0) {
+        // ON CONFLICT (id) DO NOTHING hit an existing row
+        return res.status(409).json({
+          success: false,
+          error: 'An article with this ID already exists',
+          code: 'conflict'
+        });
+      }
+
+      rawDbRow = dbRes.rows[0];
+      neonArticle = mapRowToArticle(rawDbRow);
+    }
+
+    // PART D: Live sync to Cloudflare D1 reader copy
+    if (rawDbRow) {
       try {
         const d1SyncRes = await syncSingleArticle(rawDbRow);
         if (d1SyncRes.success) {
@@ -353,14 +525,33 @@ export async function handleAdminCreateOrUpdateArticle(req: Request, res: Respon
         neonArticle.syncPending = true;
         neonArticle.syncError = syncError;
       }
-    } catch (dbErr: any) {
-      console.error('[Admin API] Neon write error:', dbErr?.message || dbErr);
-      return res.status(500).json({
-        success: false,
-        error: 'Database write failed: ' + (dbErr?.message || 'Internal error')
-      });
     }
   }
+
+  const postPayloadForR2 = {
+    id: articleId,
+    slug,
+    title: data.title,
+    content: sanitizedContent,
+    excerpt,
+    category: data.category,
+    hashtags: data.hashtags,
+    youtubeUrl: data.youtubeUrl,
+    facebookUrl: data.facebookUrl,
+    customLinks: data.customLinks,
+    imageUrl: data.imageUrl,
+    imageUrlFallback: data.imageUrlFallback,
+    imageUrls: data.imageUrls,
+    imageUrlsFallback: data.imageUrlsFallback,
+    imagePosition: data.imagePosition,
+    galleryPositions: data.galleryPositions,
+    authorId: user.uid,
+    authorName,
+    authorEmail: user.email || '',
+    status: data.status,
+    createdAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+  };
 
   // Legacy Dual-write: Maintain Cloudflare R2 / local feed compatibility for reader site and old apps
   if (data.status === 'published') {

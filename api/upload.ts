@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import crypto from 'crypto';
+import { detectImageTypeFromMagicBytes } from '../src/server/r2Upload.ts';
 
 export default async function handler(req: Request, res: Response) {
   if (req.method !== 'POST') {
@@ -74,35 +75,25 @@ export default async function handler(req: Request, res: Response) {
     const customDomain = sanitizeDomain(process.env.R2_PUBLIC_DOMAIN, 'media.currentnews.blog');
     const r2DevDomain = sanitizeDomain(process.env.R2_DEV_DOMAIN, '');
 
-    let ext = 'jpg';
-    if (mimeType === 'image/png') ext = 'png';
-    else if (mimeType === 'image/webp') ext = 'webp';
-    else if (mimeType === 'image/gif') ext = 'gif';
-    else if (mimeType === 'image/svg+xml') ext = 'svg';
-    else if (mimeType === 'image/avif') ext = 'avif';
-    else {
-      const extMatch = originalName.match(/\.([a-zA-Z0-9]+)$/);
-      if (extMatch) {
-        const foundExt = extMatch[1].toLowerCase();
-        if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg', 'heic', 'heif', 'avif'].includes(foundExt)) {
-          ext = foundExt === 'jpeg' ? 'jpg' : foundExt;
-        }
-      }
+    // Reject SVG by MIME or extension
+    if (mimeType.toLowerCase() === 'image/svg+xml' || /\.svg$/i.test(originalName)) {
+      return res.status(400).json({
+        success: false,
+        error: 'SVG uploads are strictly prohibited. Only JPEG, PNG, WebP, GIF, and AVIF are permitted.'
+      });
     }
 
-    let uploadContentType = mimeType;
-    if (!uploadContentType || uploadContentType === 'application/octet-stream' || !uploadContentType.startsWith('image/')) {
-      const mimeMap: Record<string, string> = {
-        jpg: 'image/jpeg',
-        jpeg: 'image/jpeg',
-        png: 'image/png',
-        webp: 'image/webp',
-        gif: 'image/gif',
-        svg: 'image/svg+xml',
-        avif: 'image/avif',
-      };
-      uploadContentType = mimeMap[ext] || 'image/jpeg';
+    // Verify real file type from magic bytes, not client MIME type
+    const detected = detectImageTypeFromMagicBytes(fileBuffer);
+    if (!detected) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid or unsupported image file. Only real JPEG, PNG, WebP, GIF, and AVIF files are permitted.'
+      });
     }
+
+    const ext = detected.ext;
+    const uploadContentType = detected.mime;
 
     const now = new Date();
     const year = now.getFullYear();
@@ -178,30 +169,23 @@ export default async function handler(req: Request, res: Response) {
       return res.status(200).json({
         success: true,
         url: `https://${customDomain}/${key}`,
-        fallbackUrl: `https://${r2DevDomain}/${key}`,
+        fallbackUrl: r2DevDomain ? `https://${r2DevDomain}/${key}` : `https://${customDomain}/${key}`,
         key: key,
         size: fileBuffer.length,
         mimetype: uploadContentType,
       });
     }
 
-    // High-res Base64 data URL fallback if R2 cloud storage is currently unreachable
-    // Ensures author upload and publishing NEVER fails with an error
-    const dataUrl = `data:${uploadContentType};base64,${fileBuffer.toString('base64')}`;
-    return res.status(200).json({
-      success: true,
-      url: dataUrl,
-      fallbackUrl: dataUrl,
-      key: key,
-      size: fileBuffer.length,
-      mimetype: uploadContentType,
-      storage: 'inline',
+    // If R2 upload fails, return an error to the client. Never return a base64 data URL fallback.
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to upload photo to Cloudflare R2 storage.'
     });
   } catch (error: any) {
-    console.warn('Vercel upload fallback:', error);
-    return res.status(200).json({
+    console.error('Upload error:', error);
+    return res.status(500).json({
       success: false,
-      error: 'Upload error: ' + (error?.message || 'unknown'),
+      error: 'Upload error: ' + (error?.message || 'unknown error'),
     });
   }
 }

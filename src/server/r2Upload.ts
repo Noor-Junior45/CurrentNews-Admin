@@ -59,48 +59,113 @@ function getR2Client(): S3Client | null {
   return s3Client;
 }
 
+export function detectImageTypeFromMagicBytes(buffer: Buffer): { ext: 'jpg' | 'png' | 'webp' | 'gif' | 'avif'; mime: string } | null {
+  if (!buffer || buffer.length < 12) {
+    return null;
+  }
+
+  // Reject SVG or XML strings anywhere in the first 1KB (polyglot SVG prevention)
+  const preview = buffer.subarray(0, 1024).toString('utf8').toLowerCase();
+  if (preview.includes('<svg') || preview.includes('<?xml') || preview.includes('<!doctype svg')) {
+    return null;
+  }
+
+  // 1. JPEG: FF D8 FF
+  if (buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF) {
+    return { ext: 'jpg', mime: 'image/jpeg' };
+  }
+
+  // 2. PNG: 89 50 4E 47 0D 0A 1A 0A
+  if (
+    buffer.length >= 8 &&
+    buffer[0] === 0x89 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x4E &&
+    buffer[3] === 0x47 &&
+    buffer[4] === 0x0D &&
+    buffer[5] === 0x0A &&
+    buffer[6] === 0x1A &&
+    buffer[7] === 0x0A
+  ) {
+    return { ext: 'png', mime: 'image/png' };
+  }
+
+  // 3. GIF: GIF87a or GIF89a
+  if (
+    buffer.length >= 6 &&
+    buffer[0] === 0x47 && // G
+    buffer[1] === 0x49 && // I
+    buffer[2] === 0x46 && // F
+    buffer[3] === 0x38 && // 8
+    (buffer[4] === 0x37 || buffer[4] === 0x39) && // 7 or 9
+    buffer[5] === 0x61    // a
+  ) {
+    return { ext: 'gif', mime: 'image/gif' };
+  }
+
+  // 4. WebP: RIFF .... WEBP
+  if (
+    buffer.length >= 12 &&
+    buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 && // RIFF
+    buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50   // WEBP
+  ) {
+    return { ext: 'webp', mime: 'image/webp' };
+  }
+
+  // 5. AVIF: ISOBMFF ftyp avif or avis
+  if (buffer.length >= 12) {
+    const isFtyp = buffer[4] === 0x66 && buffer[5] === 0x74 && buffer[6] === 0x79 && buffer[7] === 0x70;
+    if (isFtyp) {
+      const brand = buffer.subarray(8, 12).toString('ascii');
+      if (brand === 'avif' || brand === 'avis') {
+        return { ext: 'avif', mime: 'image/avif' };
+      }
+      const ftypBoxLen = buffer.readUInt32BE(0);
+      const searchEnd = Math.min(buffer.length, ftypBoxLen > 0 ? ftypBoxLen : 64);
+      for (let offset = 16; offset + 4 <= searchEnd; offset += 4) {
+        const compBrand = buffer.subarray(offset, offset + 4).toString('ascii');
+        if (compBrand === 'avif' || compBrand === 'avis') {
+          return { ext: 'avif', mime: 'image/avif' };
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
 export async function handleR2Upload(req: Request, res: Response): Promise<void> {
   try {
     const file = req.file;
-    if (!file) {
+    if (!file || !file.buffer || file.buffer.length === 0) {
       res.status(400).json({ success: false, error: 'No image file was provided for upload.' });
       return;
     }
 
-    // Determine extension from original name or mimetype
-    const mime = (file.mimetype || '').toLowerCase();
     const originalName = file.originalname || '';
-    let ext = 'jpg';
-    if (mime === 'image/png') ext = 'png';
-    else if (mime === 'image/webp') ext = 'webp';
-    else if (mime === 'image/gif') ext = 'gif';
-    else if (mime === 'image/svg+xml') ext = 'svg';
-    else if (mime === 'image/avif') ext = 'avif';
-    else if (mime === 'image/jpeg' || mime === 'image/jpg') ext = 'jpg';
-    else {
-      const extMatch = originalName.match(/\.([a-zA-Z0-9]+)$/);
-      if (extMatch) {
-        const foundExt = extMatch[1].toLowerCase();
-        if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg', 'heic', 'heif', 'avif'].includes(foundExt)) {
-          ext = foundExt === 'jpeg' ? 'jpg' : foundExt;
-        }
-      }
+    const clientMime = (file.mimetype || '').toLowerCase();
+
+    // Reject SVG by MIME or extension
+    if (clientMime === 'image/svg+xml' || /\.svg$/i.test(originalName)) {
+      res.status(400).json({
+        success: false,
+        error: 'SVG uploads are strictly prohibited. Only JPEG, PNG, WebP, GIF, and AVIF are permitted.'
+      });
+      return;
     }
 
-    // Standardize ContentType so browsers display images correctly
-    let uploadContentType = file.mimetype;
-    if (!uploadContentType || uploadContentType === 'application/octet-stream' || !uploadContentType.startsWith('image/')) {
-      const mimeMap: Record<string, string> = {
-        jpg: 'image/jpeg',
-        jpeg: 'image/jpeg',
-        png: 'image/png',
-        webp: 'image/webp',
-        gif: 'image/gif',
-        svg: 'image/svg+xml',
-        avif: 'image/avif',
-      };
-      uploadContentType = mimeMap[ext] || 'image/jpeg';
+    // Verify real file type from magic bytes, not client MIME type
+    const detected = detectImageTypeFromMagicBytes(file.buffer);
+    if (!detected) {
+      res.status(400).json({
+        success: false,
+        error: 'Invalid or unsupported image file. Only real JPEG, PNG, WebP, GIF, and AVIF files are permitted.'
+      });
+      return;
     }
+
+    const ext = detected.ext;
+    const uploadContentType = detected.mime;
 
     // Generate unique slug with year/month folder structure for clean organization
     const now = new Date();
@@ -142,7 +207,7 @@ export async function handleR2Upload(req: Request, res: Response): Promise<void>
         publicUrl = `https://${customDomain}/${key}`;
         fallbackUrl = r2DevDomain ? `https://${r2DevDomain}/${key}` : publicUrl;
       } catch (r2Error) {
-        console.warn('R2 S3 storage push notice:', r2Error);
+        console.error('R2 S3 storage push notice:', r2Error);
       }
     }
 
@@ -166,20 +231,17 @@ export async function handleR2Upload(req: Request, res: Response): Promise<void>
           fallbackUrl = r2DevDomain ? `https://${r2DevDomain}/${key}` : publicUrl;
         }
       } catch (cfErr) {
-        console.warn('R2 REST API upload notice:', cfErr);
+        console.error('R2 REST API upload notice:', cfErr);
       }
     }
 
-    // If R2 is not configured or failed, save locally in public/uploads for instant reliability
+    // If R2 upload fails, return an error to the client. Never return a base64 data URL fallback.
     if (!publicUrl) {
-      const localDir = path.join(process.cwd(), 'public', 'uploads', String(year), month);
-      await fs.promises.mkdir(localDir, { recursive: true });
-      const localFileName = `${Date.now()}_${randomHex}_${sanitizedOriginal}.${ext}`;
-      const localFilePath = path.join(localDir, localFileName);
-      await fs.promises.writeFile(localFilePath, file.buffer);
-
-      publicUrl = `/uploads/${year}/${month}/${localFileName}`;
-      fallbackUrl = publicUrl;
+      res.status(500).json({
+        success: false,
+        error: 'Failed to upload photo to Cloudflare R2 storage.'
+      });
+      return;
     }
 
     res.json({
@@ -188,24 +250,11 @@ export async function handleR2Upload(req: Request, res: Response): Promise<void>
       fallbackUrl: fallbackUrl,
       key: key,
       size: file.size,
-      mimetype: file.mimetype,
+      mimetype: uploadContentType,
     });
   } catch (error: any) {
-    console.warn('Upload fallback note:', error);
-    const file = req.file;
-    if (file && file.buffer) {
-      const mime = file.mimetype || 'image/jpeg';
-      const fallbackDataUrl = `data:${mime};base64,${file.buffer.toString('base64')}`;
-      res.status(200).json({
-        success: true,
-        url: fallbackDataUrl,
-        fallbackUrl: fallbackDataUrl,
-        size: file.size,
-        mimetype: mime,
-      });
-      return;
-    }
-    res.status(200).json({
+    console.error('[Upload Error]:', error);
+    res.status(500).json({
       success: false,
       error: 'Failed to upload photo: ' + (error?.message || 'unknown error'),
     });
