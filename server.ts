@@ -3,6 +3,8 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import multer from 'multer';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 
 // Modular route handlers
 import sendAlertHandler from './api/mail/send-alert.ts';
@@ -56,8 +58,81 @@ async function startServer() {
   const app = express();
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
-  // Trust proxy headers for Google Cloud Load Balancer (GCLB) and Cloudflare Anycast CDN
-  app.set('trust proxy', true);
+  // Trust proxy headers for Cloudflare (hop 1) + Cloud Run load balancer (hop 2)
+  app.set('trust proxy', 2);
+
+  // Security headers — helmet with CSP, HSTS, referrer-policy
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"], // 'unsafe-inline' required by Quill editor
+        imgSrc: ["'self'", 'https://media.currentnews.blog', 'https:'],
+        connectSrc: [
+          "'self'",
+          'https://identitytoolkit.googleapis.com',
+          'https://securetoken.googleapis.com',
+          'https://api.currentnews.blog',
+        ],
+        frameSrc: [
+          'https://www.youtube.com',
+          'https://youtube.com',
+          'https://www.youtube-nocookie.com',
+        ],
+        objectSrc: ["'none'"],
+        upgradeInsecureRequests: [],
+      },
+    },
+    hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+  }));
+
+  // Permissions-Policy header (not covered by helmet by default)
+  app.use((_req, res, next) => {
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    next();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Rate limiters — must be registered BEFORE route handlers
+  // ---------------------------------------------------------------------------
+
+  // 300 req / 15 min per IP on /api/*
+  const apiLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 300,
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+  app.use('/api/', apiLimiter);
+
+  // 20 req / 15 min on /api/admin/* writes (POST/DELETE) and /api/upload
+  const adminWriteLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+  app.post('/api/admin/*', adminWriteLimiter);
+  app.delete('/api/admin/*', adminWriteLimiter);
+  app.post('/api/upload', adminWriteLimiter);
+
+  // 10 req / hour on push subscribe/unsubscribe
+  const pushSubscribeLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+
+  // 5 req / hour on /api/mail/send-alert
+  const mailAlertLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 5,
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
 
   // Health-check (liveness) endpoint for Google Cloud Run / Container orchestrators
   app.get('/healthz', (_req, res) => {
@@ -262,8 +337,8 @@ async function startServer() {
   app.get('/api/app/version', asyncHandler(handleGetAppVersion));
   app.post('/api/app/version', requireRole('admin'), asyncHandler(handleUpdateAppVersion));
 
-  // Backend mail endpoint for automated subscriber alerting (Protected with requireRole)
-  app.post('/api/mail/send-alert', requireRole('admin', 'writer'), asyncHandler(sendAlertHandler));
+  // Backend mail endpoint for automated subscriber alerting (admin only)
+  app.post('/api/mail/send-alert', mailAlertLimiter, requireRole('admin'), asyncHandler(sendAlertHandler));
 
   // Inbound mail endpoint for webhook notifications and recipient autofill
   app.all('/api/mail/inbound', asyncHandler(inboundHandler));
@@ -292,10 +367,10 @@ async function startServer() {
 
   // Automated Push Notification API routes (100% background alerts to Android devices & browsers)
   app.get('/api/push/public-key', handleGetVapidPublicKey);
-  app.post('/api/push/subscribe', handleSubscribe);
-  app.post('/api/push/unsubscribe', handleUnsubscribe);
+  app.post('/api/push/subscribe', pushSubscribeLimiter, handleSubscribe);
+  app.post('/api/push/unsubscribe', pushSubscribeLimiter, handleUnsubscribe);
   app.post('/api/push/broadcast', requireRole('admin'), handleBroadcast);
-  app.get('/api/push/subscribers-count', handleGetSubscribersCount);
+  app.get('/api/push/subscribers-count', requireRole('admin', 'writer'), handleGetSubscribersCount);
 
   // Fallback 404 handler for any unmatched /api/* route so it NEVER returns HTML to API clients
   app.all('/api/*', (_req, res) => {

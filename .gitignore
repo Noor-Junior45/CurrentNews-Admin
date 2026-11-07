@@ -10,3 +10,4 @@ server.cjs
 !.env.example
 *downloaded-logs*
 data/
+.aistudio/

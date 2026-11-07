@@ -1,133 +1,152 @@
 import type { Request, Response } from 'express';
 import webpush from 'web-push';
-import crypto from 'crypto';
-import fs from 'fs';
-import path from 'path';
+import { query } from '../../server/db/neon.ts';
 
-// Local disk persistence for push subscriptions (decoupled from Firestore)
-const DATA_DIR = path.join(process.cwd(), 'data');
-const PUSH_SUBS_FILE = path.join(DATA_DIR, 'push_subscriptions.json');
-
-function ensureDataDir() {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-}
-
-interface StoredPushSub {
-  id: string;
-  endpoint: string;
-  keys: {
-    p256dh?: string;
-    auth?: string;
-  };
-  userAgent?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-function loadPushSubscriptions(): Map<string, StoredPushSub> {
-  const map = new Map<string, StoredPushSub>();
-  try {
-    ensureDataDir();
-    if (fs.existsSync(PUSH_SUBS_FILE)) {
-      const raw = fs.readFileSync(PUSH_SUBS_FILE, 'utf-8');
-      const list: StoredPushSub[] = JSON.parse(raw);
-      for (const item of list) {
-        if (item && item.endpoint) {
-          map.set(item.id || getEndpointId(item.endpoint), item);
-        }
-      }
-    }
-  } catch (err) {
-    console.warn('[Push Service] Could not read push_subscriptions.json:', err);
-  }
-  return map;
-}
-
-function savePushSubscriptions(map: Map<string, StoredPushSub>) {
-  try {
-    ensureDataDir();
-    const arr = Array.from(map.values());
-    fs.writeFileSync(PUSH_SUBS_FILE, JSON.stringify(arr, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('[Push Service] Could not write push_subscriptions.json:', err);
-  }
-}
-
-const VAPID_FILE = path.join(DATA_DIR, 'vapid_keys.json');
-
-// VAPID credentials for Web Push protocol (RFC 8292 / RFC 8291 standard)
-let resolvedPublicKey = process.env.VAPID_PUBLIC_KEY;
-let resolvedPrivateKey = process.env.VAPID_PRIVATE_KEY;
-
-if (!resolvedPublicKey || !resolvedPrivateKey) {
-  try {
-    ensureDataDir();
-    if (fs.existsSync(VAPID_FILE)) {
-      const savedKeys = JSON.parse(fs.readFileSync(VAPID_FILE, 'utf-8'));
-      resolvedPublicKey = resolvedPublicKey || savedKeys.publicKey;
-      resolvedPrivateKey = resolvedPrivateKey || savedKeys.privateKey;
-    }
-  } catch (readErr) {
-    console.warn('[Push Service] Could not read vapid_keys.json:', readErr);
-  }
-}
-
-if (!resolvedPublicKey || !resolvedPrivateKey) {
-  try {
-    const generated = webpush.generateVAPIDKeys();
-    resolvedPublicKey = resolvedPublicKey || generated.publicKey;
-    resolvedPrivateKey = resolvedPrivateKey || generated.privateKey;
-    try {
-      ensureDataDir();
-      fs.writeFileSync(VAPID_FILE, JSON.stringify({
-        publicKey: resolvedPublicKey,
-        privateKey: resolvedPrivateKey,
-      }, null, 2), 'utf-8');
-      console.log('[Push Service] Persisted generated VAPID keys to data/vapid_keys.json');
-    } catch (saveErr) {
-      console.warn('[Push Service] Could not write vapid_keys.json:', saveErr);
-    }
-  } catch (genErr) {
-    console.warn('[Push Service] Could not generate dynamic VAPID keys:', genErr);
-  }
-}
-
-export const VAPID_PUBLIC_KEY = resolvedPublicKey || '';
-export const VAPID_PRIVATE_KEY = resolvedPrivateKey || '';
+// ---------------------------------------------------------------------------
+// VAPID keys — read ONLY from environment variables.
+// If missing, push is disabled; we log a clear error and all endpoints
+// return 503 so callers know to fix config rather than silently fail.
+// ---------------------------------------------------------------------------
+const VAPID_PUBLIC_KEY_RAW = process.env.VAPID_PUBLIC_KEY;
+const VAPID_PRIVATE_KEY_RAW = process.env.VAPID_PRIVATE_KEY;
 export const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:alerts@currentnews.blog';
 
-if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
+let pushEnabled = false;
+
+if (!VAPID_PUBLIC_KEY_RAW || !VAPID_PRIVATE_KEY_RAW) {
+  console.error(
+    '[Push Service] CRITICAL: VAPID_PUBLIC_KEY and/or VAPID_PRIVATE_KEY are missing from environment. ' +
+    'Push notifications are DISABLED. Set both env vars and redeploy to enable push.'
+  );
+} else {
   try {
-    webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+    webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY_RAW, VAPID_PRIVATE_KEY_RAW);
+    pushEnabled = true;
     console.log('[Push Service] VAPID details configured successfully.');
   } catch (vapidErr) {
     console.error('[Push Service] VAPID initialization error:', vapidErr);
   }
 }
 
-// Generate stable deterministic ID from endpoint URL
-function getEndpointId(endpoint: string): string {
-  return crypto.createHash('sha256').update(endpoint).digest('hex').substring(0, 32);
+export const VAPID_PUBLIC_KEY = VAPID_PUBLIC_KEY_RAW || '';
+
+// ---------------------------------------------------------------------------
+// Validation helpers
+// ---------------------------------------------------------------------------
+
+/** Allowed push-service hostnames (suffix match). */
+const ALLOWED_PUSH_HOSTS = [
+  'fcm.googleapis.com',
+  '.push.apple.com',
+  '.notify.windows.com',
+  'updates.push.services.mozilla.com',
+];
+
+function isAllowedEndpoint(endpoint: string): boolean {
+  if (!endpoint || typeof endpoint !== 'string') return false;
+  if (!endpoint.startsWith('https://')) return false;
+  try {
+    const { hostname } = new URL(endpoint);
+    return ALLOWED_PUSH_HOSTS.some((allowed) =>
+      allowed.startsWith('.') ? hostname.endsWith(allowed) : hostname === allowed
+    );
+  } catch {
+    return false;
+  }
 }
+
+/** base64url characters only, with optional '=' padding. */
+const BASE64URL_RE = /^[A-Za-z0-9\-_]+=*$/;
+
+function isValidBase64url(value: unknown): value is string {
+  return typeof value === 'string' && BASE64URL_RE.test(value);
+}
+
+function validateSubscription(subscription: any): string | null {
+  const endpoint: unknown = subscription?.endpoint;
+  const p256dh: unknown = subscription?.keys?.p256dh;
+  const auth: unknown = subscription?.keys?.auth;
+
+  if (typeof endpoint !== 'string' || endpoint.length > 500) {
+    return 'endpoint must be a string ≤ 500 characters';
+  }
+  if (!isAllowedEndpoint(endpoint)) {
+    return 'endpoint must be an https:// URL from an approved push service';
+  }
+  if (!isValidBase64url(p256dh) || (p256dh as string).length > 200) {
+    return 'keys.p256dh must be a valid base64url string ≤ 200 characters';
+  }
+  if (!isValidBase64url(auth) || (auth as string).length > 50) {
+    return 'keys.auth must be a valid base64url string ≤ 50 characters';
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// DB helpers
+// ---------------------------------------------------------------------------
+
+async function dbUpsertSubscription(
+  endpoint: string,
+  p256dh: string,
+  auth: string,
+  userAgent: string
+): Promise<void> {
+  await query(
+    `INSERT INTO push_subscriptions (endpoint, p256dh, auth, user_agent)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (endpoint) DO UPDATE
+       SET p256dh     = EXCLUDED.p256dh,
+           auth       = EXCLUDED.auth,
+           user_agent = EXCLUDED.user_agent`,
+    [endpoint, p256dh, auth, userAgent]
+  );
+}
+
+async function dbDeleteSubscription(endpoint: string): Promise<void> {
+  await query('DELETE FROM push_subscriptions WHERE endpoint = $1', [endpoint]);
+}
+
+async function dbCountSubscriptions(): Promise<number> {
+  const result = await query<{ count: string }>('SELECT COUNT(*) AS count FROM push_subscriptions');
+  return parseInt(result.rows[0]?.count ?? '0', 10);
+}
+
+interface PushRow {
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+}
+
+async function dbGetAllSubscriptions(): Promise<PushRow[]> {
+  const result = await query<PushRow>('SELECT endpoint, p256dh, auth FROM push_subscriptions');
+  return result.rows;
+}
+
+// ---------------------------------------------------------------------------
+// Route handlers
+// ---------------------------------------------------------------------------
 
 /**
  * GET /api/push/public-key
- * Returns the VAPID Public Key needed by the browser/Android device to generate push credentials.
+ * Returns the VAPID Public Key needed by browsers/Android to generate push credentials.
  */
 export function handleGetVapidPublicKey(_req: Request, res: Response) {
-  return res.json({
-    success: true,
-    publicKey: VAPID_PUBLIC_KEY,
-  });
+  if (!pushEnabled) {
+    return res.status(503).json({ success: false, error: 'Push notifications are disabled (VAPID keys not configured).' });
+  }
+  return res.json({ success: true, publicKey: VAPID_PUBLIC_KEY });
 }
 
 /**
  * POST /api/push/subscribe
- * Registers a device push subscription into local JSON store.
+ * Registers a device push subscription into Neon push_subscriptions table.
  */
 export async function handleSubscribe(req: Request, res: Response) {
+  if (!pushEnabled) {
+    return res.status(503).json({ success: false, error: 'Push notifications are disabled (VAPID keys not configured).' });
+  }
+
   try {
     const { subscription, userAgent } = req.body || {};
 
@@ -138,23 +157,21 @@ export async function handleSubscribe(req: Request, res: Response) {
       });
     }
 
-    const docId = getEndpointId(subscription.endpoint);
-    const subsMap = loadPushSubscriptions();
+    const validationError = validateSubscription(subscription);
+    if (validationError) {
+      return res.status(400).json({ success: false, error: validationError });
+    }
 
-    const existing = subsMap.get(docId);
-    subsMap.set(docId, {
-      id: docId,
-      endpoint: subscription.endpoint,
-      keys: {
-        p256dh: subscription.keys.p256dh,
-        auth: subscription.keys.auth,
-      },
-      userAgent: userAgent || req.headers['user-agent'] || '',
-      createdAt: existing?.createdAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
+    const ua: string = typeof userAgent === 'string'
+      ? userAgent.slice(0, 512)
+      : (req.headers['user-agent'] || '').slice(0, 512);
 
-    savePushSubscriptions(subsMap);
+    await dbUpsertSubscription(
+      subscription.endpoint as string,
+      subscription.keys.p256dh as string,
+      subscription.keys.auth as string,
+      ua
+    );
 
     return res.json({
       success: true,
@@ -171,23 +188,24 @@ export async function handleSubscribe(req: Request, res: Response) {
 
 /**
  * POST /api/push/unsubscribe
- * Removes a device push subscription when the user toggles off alerts.
+ * Removes a device push subscription.
  */
 export async function handleUnsubscribe(req: Request, res: Response) {
+  if (!pushEnabled) {
+    return res.status(503).json({ success: false, error: 'Push notifications are disabled (VAPID keys not configured).' });
+  }
+
   try {
     const { endpoint } = req.body || {};
 
-    if (!endpoint) {
+    if (!endpoint || typeof endpoint !== 'string') {
       return res.status(400).json({
         success: false,
         error: 'Missing subscription endpoint',
       });
     }
 
-    const docId = getEndpointId(endpoint);
-    const subsMap = loadPushSubscriptions();
-    subsMap.delete(docId);
-    savePushSubscriptions(subsMap);
+    await dbDeleteSubscription(endpoint);
 
     return res.json({
       success: true,
@@ -205,28 +223,28 @@ export async function handleUnsubscribe(req: Request, res: Response) {
 /**
  * GET /api/push/subscribers-count
  * Returns the count of registered push devices.
+ * Requires admin or writer role (enforced in server.ts).
  */
 export async function handleGetSubscribersCount(_req: Request, res: Response) {
   try {
-    const subsMap = loadPushSubscriptions();
-    return res.json({
-      success: true,
-      count: subsMap.size,
-    });
+    const count = await dbCountSubscriptions();
+    return res.json({ success: true, count });
   } catch (error: any) {
     console.warn('[Push Service] Count notice:', error);
-    return res.json({
-      success: true,
-      count: 0,
-    });
+    return res.json({ success: true, count: 0 });
   }
 }
 
 /**
  * POST /api/push/broadcast
- * Dispatches an automated background push notification to all subscribed devices.
+ * Dispatches a push notification to all subscribed devices.
+ * Requires admin role (enforced in server.ts).
  */
 export async function handleBroadcast(req: Request, res: Response) {
+  if (!pushEnabled) {
+    return res.status(503).json({ success: false, error: 'Push notifications are disabled (VAPID keys not configured).' });
+  }
+
   try {
     const { title, body, url, postId, image, icon } = req.body || {};
 
@@ -248,8 +266,7 @@ export async function handleBroadcast(req: Request, res: Response) {
       timestamp: Date.now(),
     });
 
-    const subsMap = loadPushSubscriptions();
-    const subscriptions = Array.from(subsMap.values());
+    const subscriptions = await dbGetAllSubscriptions();
 
     if (subscriptions.length === 0) {
       return res.json({
@@ -275,8 +292,8 @@ export async function handleBroadcast(req: Request, res: Response) {
             const pushConfig = {
               endpoint: sub.endpoint,
               keys: {
-                p256dh: sub.keys?.p256dh,
-                auth: sub.keys?.auth,
+                p256dh: sub.p256dh,
+                auth: sub.auth,
               },
             };
 
@@ -288,18 +305,15 @@ export async function handleBroadcast(req: Request, res: Response) {
           } catch (err: any) {
             failed++;
             if (err.statusCode === 404 || err.statusCode === 410) {
-              subsMap.delete(sub.id);
+              // Stale subscription — delete from DB
+              await dbDeleteSubscription(sub.endpoint).catch(() => {});
               purged++;
             } else {
-              console.warn(`[Push Service] Push delivery notice for ${sub.id}:`, err.message);
+              console.warn(`[Push Service] Push delivery notice for ${sub.endpoint.slice(0, 60)}:`, err.message);
             }
           }
         })
       );
-    }
-
-    if (purged > 0) {
-      savePushSubscriptions(subsMap);
     }
 
     return res.json({

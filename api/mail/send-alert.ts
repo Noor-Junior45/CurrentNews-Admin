@@ -94,12 +94,14 @@ export default async function handler(req: Request, res: Response) {
     return res.status(400).json({ success: false, message: 'Invalid recipient email address format.' });
   }
 
-  // Validate and sanitize link URL
+  // Validate and sanitize link URL — must start with the approved domain
   let safeLink = 'https://currentnews.blog';
   if (link && typeof link === 'string') {
     const rawLink = link.trim();
-    if (/^https?:\/\//i.test(rawLink)) {
+    if (rawLink.startsWith('https://currentnews.blog') || rawLink.startsWith('https://www.currentnews.blog')) {
       safeLink = rawLink;
+    } else {
+      return res.status(400).json({ success: false, message: 'Invalid link. Must start with https://currentnews.blog or https://www.currentnews.blog.' });
     }
   }
 
@@ -234,8 +236,8 @@ export default async function handler(req: Request, res: Response) {
 </body>
 </html>`;
 
-    const textContent = `Welcome to Current News! ${title}. Read more at ${link || 'https://currentnews.blog'}`;
-    const result = await sendResendEmail(email, title, htmlContent, textContent);
+    const textContent = `Welcome to Current News! ${safeTitle}. Read more at ${safeLink}`;
+    const result = await sendResendEmail(email, safeTitle, htmlContent, textContent);
 
     console.log(`[VERCEL SERVERLESS RESEND API] Email successfully dispatched. Result:`, result);
     return res.status(200).json({
