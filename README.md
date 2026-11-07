@@ -86,6 +86,16 @@ The app will be running at `http://localhost:3000`.
 
 **Important:** when deploying to Vercel, set these in **Project → Settings → Environment Variables** — a local `.env` file alone will not reach the production build.
 
+## 🔐 Granting Admin Access
+
+To grant admin or writer privileges to an account, run the role-setting CLI script with Application Default Credentials:
+
+```bash
+node scripts/set-role.mjs <email> admin
+```
+
+Supported roles are `admin`, `writer`, or `none`. Once executed, the target user must **sign out and back in** for the new Firebase Custom Claims to take effect on their ID token.
+
 ## 📦 Available Scripts
 
 | Command | Description |

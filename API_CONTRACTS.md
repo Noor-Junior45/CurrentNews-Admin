@@ -411,7 +411,7 @@ All `/api/admin/*` endpoints strictly require `Authorization: Bearer <ID_TOKEN>`
   {
     "success": true,
     "uid": "...",
-    "email": "mdhassan1738@gmail.com",
+    "email": "you@example.com",
     "role": "admin"
   }
   ```

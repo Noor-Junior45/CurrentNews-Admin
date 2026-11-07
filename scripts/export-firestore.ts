@@ -218,7 +218,7 @@ async function runExport() {
   // Provide CLI helper info for importing into Cloudflare D1
   console.log('\n--- Next Steps to Import into Cloudflare D1 ---');
   console.log('To import this export into Cloudflare D1:');
-  console.log('1. Obtain an ID token for an admin email (e.g. mdhassan1738@gmail.com)');
+  console.log('1. Obtain an ID token for an admin account (e.g. you@example.com)');
   console.log('2. Send a POST request to your Worker:');
   console.log('   curl -X POST https://api.currentnews.blog/import \\');
   console.log('     -H "Authorization: Bearer <ADMIN_FIREBASE_ID_TOKEN>" \\');

@@ -94,14 +94,17 @@ export default async function handler(req: Request, res: Response) {
     return res.status(400).json({ success: false, message: 'Invalid recipient email address format.' });
   }
 
-  // Validate and sanitize link URL — must start with the approved domain
+  // Validate and sanitize link URL using URL parsing
   let safeLink = 'https://currentnews.blog';
   if (link && typeof link === 'string') {
-    const rawLink = link.trim();
-    if (rawLink.startsWith('https://currentnews.blog') || rawLink.startsWith('https://www.currentnews.blog')) {
-      safeLink = rawLink;
-    } else {
-      return res.status(400).json({ success: false, message: 'Invalid link. Must start with https://currentnews.blog or https://www.currentnews.blog.' });
+    try {
+      const u = new URL(link.trim());
+      if (u.protocol !== 'https:' || (u.hostname !== 'currentnews.blog' && u.hostname !== 'www.currentnews.blog')) {
+        return res.status(400).json({ success: false, message: 'Invalid link. Must be an https:// URL on currentnews.blog or www.currentnews.blog.' });
+      }
+      safeLink = u.toString();
+    } catch {
+      return res.status(400).json({ success: false, message: 'Invalid link URL.' });
     }
   }
 

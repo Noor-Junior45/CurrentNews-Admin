@@ -8,7 +8,7 @@
  * 
  * Runs in Google Cloud Shell or any environment with Application Default Credentials (ADC).
  * Example:
- *   node scripts/set-role.mjs mdhassan1738@gmail.com admin
+ *   node scripts/set-role.mjs you@example.com admin
  */
 
 import { initializeApp, getApps, applicationDefault, getApp } from 'firebase-admin/app';

@@ -50,7 +50,7 @@
 - **Phase 4 (Authentication Backend Resilience & Public Cert Fallback):** [COMPLETED]
   - Root caused `auth/internal-error` (HTTP 503 `auth_backend_error`) on `/api/admin/*`: revoked token checking in `firebase-admin` defaulted to `true`, requiring Google Identity Platform `accounts:lookup` which failed under Cloud Run / sandbox ADC credentials.
   - Implemented `/server/auth/tokenVerifier.ts` providing multi-tier token verification: attempts `verifyIdToken(token, false)` first, and falls back to cryptographic RS256 signature verification against Google's public x509 certs.
-  - Added Bootstrapped Admin assignment in `/server/auth/requireRole.ts` and `/src/hooks/useAuthState.ts` for runtime admin email `mdnoor4860@gmail.com` and secondary admin `mdhassan1738@gmail.com`.
+  - Role assignment is managed via `node scripts/set-role.mjs <email> admin` (sets Firebase Custom Claims).
   - Upgraded email verification checking to accept Google Sign-In provider tokens.
 - **Phase 5 (Root Landing Page & Borderless Minimalist Login Stage):** [COMPLETED]
   - Configured `src/App.tsx` router with root path `"/"` serving `SignInView.tsx` directly as the landing page.

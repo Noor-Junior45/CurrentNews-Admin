@@ -1,8 +1,5 @@
 /**
  * Writer / Editorial Byline Configuration Helper
- * Loads the list of allowed or configured authors from environment variable VITE_WRITERS.
- * In the future, administrators can add or remove writers at any time by simply updating
- * the VITE_WRITERS environment variable (comma-separated), requiring zero code modifications!
  */
 
 export const DEFAULT_WRITERS = [

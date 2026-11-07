@@ -82,7 +82,7 @@ gcloud run deploy currentnews-app \
   --cpu 1 \
   --min-instances 0 \
   --max-instances 10 \
-  --set-env-vars "NODE_ENV=production,PORT=8080,VITE_WRITERS=Current News Staff Report,mdhassan1738@gmail.com"
+  --set-env-vars "NODE_ENV=production,PORT=8080"
 ```
 *(Tip: You can change `--region` to `us-central1`, `asia-south1` (Mumbai), or your preferred cloud region).*
 
@@ -112,7 +112,7 @@ To update environment variables at any time without rebuilding the container:
 ```bash
 gcloud run services update currentnews-app \
   --region asia-southeast1 \
-  --update-env-vars "VITE_WRITERS=Current News Staff Report,mdhassan1738@gmail.com,R2_ACCOUNT_ID=YOUR_ID,R2_ACCESS_KEY_ID=YOUR_KEY,R2_SECRET_ACCESS_KEY=YOUR_SECRET,R2_BUCKET_NAME=YOUR_BUCKET"
+  --update-env-vars "R2_ACCOUNT_ID=YOUR_ID,R2_ACCESS_KEY_ID=YOUR_KEY,R2_SECRET_ACCESS_KEY=YOUR_SECRET,R2_BUCKET_NAME=YOUR_BUCKET"
 ```
 
 ## 5. Deploy Directly from GitHub to Cloud Run (Automated CI/CD)
