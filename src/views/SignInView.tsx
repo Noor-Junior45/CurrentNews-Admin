@@ -193,11 +193,11 @@ export default function SignInView(): React.JSX.Element {
             </div>
 
             {/* Right side heading Current News and Admin below in second line */}
-            <div className="text-left flex flex-col justify-center">
-              <h1 className="font-cormorant text-3xl sm:text-4xl md:text-5xl font-bold leading-none tracking-tight text-black dark:text-white">
+            <div className="text-left flex flex-col justify-center min-w-0">
+              <h1 className="font-lora text-2xl xs:text-[1.75rem] sm:text-3xl md:text-4xl font-normal leading-tight tracking-normal text-black dark:text-white whitespace-nowrap">
                 Current News
               </h1>
-              <div className="font-cormorant text-2xl sm:text-3xl md:text-4xl font-semibold leading-none tracking-tight text-black dark:text-white mt-1.5 sm:mt-2">
+              <div className="font-lora text-xl xs:text-2xl sm:text-3xl font-normal leading-tight tracking-normal text-black dark:text-white mt-1 sm:mt-1.5">
                 Admin
               </div>
             </div>
@@ -358,7 +358,7 @@ export default function SignInView(): React.JSX.Element {
                     <path d="M15 12H3"></path>
                     <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
                   </svg>
-                  <span>{isSignUp ? 'Create account' : 'Sign in'}</span>
+                  <span className="font-lora font-medium tracking-normal normal-case text-sm sm:text-base">{isSignUp ? 'Create account' : 'Sign in'}</span>
                 </>
               )}
             </button>

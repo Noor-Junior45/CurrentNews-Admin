@@ -25,11 +25,12 @@ ENV PORT=8080
 COPY package*.json ./
 RUN npm ci --omit=dev || npm install --omit=dev
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/server.cjs ./server.cjs
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/api ./api
 COPY --from=builder /app/firebase-applet-config.json ./firebase-applet-config.json
 EXPOSE 8080
-CMD ["node", "dist/server.cjs"]
+CMD ["node", "server.cjs"]
 ```
 
 ## 3. Step-by-Step Deployment Guide from Scratch

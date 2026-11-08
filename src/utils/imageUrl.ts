@@ -5,10 +5,24 @@
  * and R2 direct dev domain (pub-03dd1274c4824531a1478f20e0485d75.r2.dev).
  */
 
-export const R2_CUSTOM_DOMAIN = ((import.meta as any).env?.VITE_R2_PUBLIC_DOMAIN as string) || 'media.currentnews.blog';
-export const R2_DEV_DOMAIN = ((import.meta as any).env?.VITE_R2_DEV_DOMAIN as string) || '';
+const getEnv = (key: string, fallback: string): string => {
+  if (typeof process !== 'undefined' && process.env && process.env[key]) {
+    return process.env[key] as string;
+  }
+  return fallback;
+};
+
+export const R2_CUSTOM_DOMAIN = getEnv('VITE_R2_PUBLIC_DOMAIN', 'media.currentnews.blog');
+export const R2_DEV_DOMAIN = getEnv('VITE_R2_DEV_DOMAIN', '');
 export const DEFAULT_BRAND_EMBLEM = '/CurrentNews.png';
-import { webUrl } from './webBase';
+
+/**
+ * Normalizes relative paths, ensuring consistent format across web and server runtimes.
+ */
+export function webUrl(path: string): string {
+  if (!path) return '';
+  return path.startsWith('/') ? path : `/${path}`;
+}
 
 /**
  * Known non-image sites or patterns (such as online converter tools or generic page roots)

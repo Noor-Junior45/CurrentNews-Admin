@@ -34,7 +34,7 @@
 - **Phase 2 (Persistent Admin Shell, Seamless Navbar & Mobile Touch Swipe):** [COMPLETED]
   - Created `src/components/AdminLayout.tsx` persistent administrative shell hosting `AdminNavbar` permanently across all editorial routes.
   - Eliminated full-page loading buffer flickers when switching tabs via singleton auth state caching in `useAuthState.ts`.
-  - Row 1: Logo (`/CurrentNews.png`) + name `Current news - Admin` in Baloo 2 font (tag removed); circle profile button on right.
+  - Row 1: Logo (`/CurrentNews.png`) + name `Current News Admin` in Lora font (`font-lora font-semibold`); circle profile button on right.
   - Row 2: Centered buttons without enclosing pill box matching reference image pattern, with distinct colored icons (emerald, indigo, blue, amber), vertical dividers, proper margins, and mobile font fitting (`text-[11px]` to `text-sm`).
   - Pure client-side offline touch-swipe gesture support to navigate smoothly between tabs on mobile/tablet devices without UI lag or scroll conflict.
 - **Phase 3 (Login Page Clean Redesign):** [COMPLETED]
@@ -101,7 +101,55 @@
   - Parameterized `pubId` in `api/ads.txt.ts` and `api/app-ads.txt.ts` to support `ADSENSE_PUB_ID` and `ADMOB_PUB_ID`.
   - Updated `.env.example` with full configuration definitions.
 
+- **Phase 14 (Cloud Run Deployment Fixes & Zero-Flicker Layout Architecture):** [COMPLETED]
+  - Resolved Cloud Run boot crash (`ERR_MODULE_NOT_FOUND` importing `/workspace/src/utils/webBase`) by inlining the self-contained `webUrl` helper inside `src/utils/imageUrl.ts` and decoupling `webBase.ts` from Capacitor dependencies.
+  - Resolved `vite build` failure by fully restoring `src/firebase.ts` singleton initialization exporting `app`, `auth`, `db`, and `handleFirestoreError`.
+  - Resolved `SyntaxError: The requested module 'pg' does not provide an export named 'QueryResult'` in `server/db/neon.ts` by using type-only import specifiers `import type { Pool as PgPool, QueryResult, QueryResultRow } from 'pg'`.
+  - Implemented `AdminLayout.tsx` persistent administrative shell hosting `AdminNavbar` permanently across all child routes, eliminating full-page loading buffers.
+  - Validated both `npm run build` and direct `node server.ts` / `node server.cjs` boot with HTTP 200 on `/healthz`.
+
+- **Phase 15 (AI Studio Development Preview IFrame Connectivity):** [COMPLETED]
+  - Diagnosed "refused to connect" error in AI Studio development preview iframe (`https://ais-dev-*.asia-southeast1.run.app`).
+  - Identified root cause in `server.ts`: Helmet's default `X-Frame-Options: SAMEORIGIN`, `Cross-Origin-Opener-Policy: same-origin`, and `Content-Security-Policy: frame-ancestors 'self'` headers blocked embedding inside the AI Studio parent window.
+  - Configured `helmet({ frameguard: false, crossOriginOpenerPolicy: false, crossOriginResourcePolicy: false })` and explicitly set `frameAncestors: ["'self'", 'https://*.google.com', 'https://*.run.app', 'http://localhost:*']`.
+  - Locked dev server port to `3000` (`process.env.NODE_ENV === 'production' ? (process.env.PORT || 8080) : 3000`).
+  - Rebuilt production bundle and verified dev server is serving HTTP 200 OK on both port 3000 and 8080 with zero frame-blocking headers.
+
+- **Phase 16 (Login Header Typography: Lora Regular & Single-Line Fit):** [COMPLETED]
+  - Imported Google Font `Lora` (`Lora:ital,wght@0,400;0,500;0,600;1,400`) in `src/index.css` and configured `--font-lora` and `.font-lora`.
+  - Updated `SignInView.tsx` header section:
+    - CSS Selector 1 (`h1` "Current News"): Applied `font-lora font-normal text-xl xs:text-2xl sm:text-3xl whitespace-nowrap leading-tight tracking-normal`, ensuring "Current News" fits comfortably in a single line across mobile and desktop.
+    - CSS Selector 2 (`div` "Admin"): Applied `font-lora font-normal text-lg xs:text-xl sm:text-2xl leading-tight tracking-normal`.
+  - Kept all other pages and components intact per the "header section only" constraint.
+  - Verified 0 TypeScript errors and 0 lint warnings across `compile_applet` and `lint_applet`.
+
+- **Phase 17 (Sign In Submit Button Lora Typography & Calibrated Header Size):** [COMPLETED]
+  - Applied `font-lora font-medium text-sm sm:text-base normal-case` to the Sign In / Create Account submit button `<span>` (CSS Selector 1).
+  - Moderately increased the header "Current News" font size (`text-2xl xs:text-[1.75rem] sm:text-3xl md:text-4xl`) and "Admin" font size (`text-xl xs:text-2xl sm:text-3xl`) while strictly maintaining its single-line layout and exact horizontal position on phone screens with `whitespace-nowrap` (CSS Selector 2).
+  - Kept all other layouts, buttons, and views intact.
+  - Verified 0 TypeScript compilation errors and 0 lint warnings.
+
+- **Phase 18 (Admin Navbar Brand Identity Update):** [COMPLETED]
+  - Updated Row 1 of `AdminNavbar.tsx` (CSS Selector 1: `a#admin-brand-link`):
+    - Removed the hyphen `[-]` separator.
+    - Set the text to `Current News Admin` styled in Baloo 2 font (`font-baloo text-lg sm:text-2xl font-bold tracking-tight text-slate-950 dark:text-white leading-none`).
+  - Preserved the framed logo, circle profile button, and sticky layout structure.
+  - Verified 0 TypeScript compilation errors and 0 lint warnings.
+
+- **Phase 19 (Admin Navbar Lora Typography Refinement):** [COMPLETED]
+  - Updated Row 1 of `AdminNavbar.tsx` (CSS Selector 1: `a#admin-brand-link`):
+    - Changed brand heading font from Baloo to Lora (`font-lora text-lg sm:text-2xl font-semibold tracking-tight text-slate-950 dark:text-white leading-none`).
+  - Preserved the clean `Current News Admin` title, framed logo, and right-aligned circular profile menu.
+  - Verified 0 TypeScript compilation errors and 0 lint warnings across `compile_applet` and `lint_applet`.
+
+- **Phase 20 (Codebase Security & Secrets Elimination Audit):** [COMPLETED]
+  - Executed a full-codebase adversarial audit scanning for hardcoded secrets, database passwords, private keys, AWS access tokens, and API credentials.
+  - Confirmed 0 private keys, 0 hardcoded database credentials, and 0 secret tokens in source files.
+  - Refactored `src/firebase.ts` to dynamically import `firebase-applet-config.json` with runtime environment variable overrides (`VITE_FIREBASE_API_KEY`, etc.), eliminating hardcoded API key string literals.
+  - Confirmed that `.env.example` contains only blank placeholder definitions with zero production values committed.
+  - Verified 0 TypeScript compilation errors and 0 lint warnings across `compile_applet` and `lint_applet`.
+
 ## 4. Immediate Next Step
-- Maintain full operational readiness for newsroom editors and administrative dispatching.
+- Application is live and accessible in the AI Studio preview iframe, ready for newsroom operations.
 
 

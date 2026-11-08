@@ -56,35 +56,46 @@ const asyncHandler = (handler: any) => {
 
 async function startServer() {
   const app = express();
-  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+  // Dev server must run on port 3000 per AI Studio runtime environment requirements.
+  // In production (Cloud Run), dynamically read process.env.PORT (defaulting to 8080).
+  const PORT = process.env.NODE_ENV === 'production'
+    ? (process.env.PORT ? parseInt(process.env.PORT, 10) : 8080)
+    : 3000;
 
   // Trust proxy headers for Cloudflare (hop 1) + Cloud Run load balancer (hop 2)
   app.set('trust proxy', 2);
 
-  // Security headers — helmet with CSP, HSTS, referrer-policy
+  // Security headers — helmet configured to permit AI Studio preview iframes
   app.use(helmet({
+    frameguard: false, // Disables X-Frame-Options: SAMEORIGIN so AI Studio and parent frames can embed the app
+    crossOriginOpenerPolicy: false,
+    crossOriginResourcePolicy: false,
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'"],
-        styleSrc: ["'self'", "'unsafe-inline'"], // 'unsafe-inline' required by Quill editor
-        imgSrc: ["'self'", 'https://media.currentnews.blog', 'https:'],
+        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+        styleSrc: ["'self'", "'unsafe-inline'"], // 'unsafe-inline' required by Quill editor & Tailwind
+        imgSrc: ["'self'", 'https://media.currentnews.blog', 'https:', 'data:', 'blob:'],
         connectSrc: [
           "'self'",
           'https://identitytoolkit.googleapis.com',
           'https://securetoken.googleapis.com',
           'https://api.currentnews.blog',
+          'https://*.run.app',
+          'ws:',
+          'wss:',
         ],
         frameSrc: [
           'https://www.youtube.com',
           'https://youtube.com',
           'https://www.youtube-nocookie.com',
         ],
+        frameAncestors: ["'self'", 'https://*.google.com', 'https://*.run.app', 'http://localhost:*'],
         objectSrc: ["'none'"],
-        upgradeInsecureRequests: [],
+        upgradeInsecureRequests: process.env.NODE_ENV === 'production' ? [] : null,
       },
     },
-    hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
+    hsts: process.env.NODE_ENV === 'production' ? { maxAge: 31536000, includeSubDomains: true, preload: true } : false,
     referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
   }));
 

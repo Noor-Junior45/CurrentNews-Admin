@@ -1,6 +1,7 @@
-import { Pool, QueryResult, QueryResultRow } from 'pg';
+import pg from 'pg';
+import type { Pool as PgPool, QueryResult, QueryResultRow } from 'pg';
 
-let pool: Pool | null = null;
+let pool: PgPool | null = null;
 let hasLoggedWarning = false;
 
 /**
@@ -14,7 +15,7 @@ export function isNeonConfigured(): boolean {
  * Returns the pooled PostgreSQL client for Cloud Run server-side operations.
  * Lazily initialized so missing configuration does not crash public reader routes on startup.
  */
-export function getPool(): Pool | null {
+export function getPool(): PgPool | null {
   const connectionString = (process.env.NEON_DATABASE_URL || '').trim();
 
   if (!connectionString) {
@@ -26,7 +27,7 @@ export function getPool(): Pool | null {
   }
 
   if (!pool) {
-    pool = new Pool({
+    pool = new pg.Pool({
       connectionString,
       ssl: true,
       max: 10,

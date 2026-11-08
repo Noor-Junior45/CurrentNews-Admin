@@ -201,22 +201,22 @@ export default function AdminNavbar(): React.JSX.Element {
       <header className="sticky top-0 z-40 w-full bg-white/95 dark:bg-slate-950/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 shadow-2xs select-none">
         {/* LINE 1: Logo & Name on Left | Circle Profile Button on Right */}
         <div className="max-w-7xl mx-auto px-3 sm:px-6 h-14 sm:h-15 flex items-center justify-between gap-3">
-          {/* Left: Brand Identity with Baloo font and exact casing */}
+          {/* Left: Brand Identity with Lora font */}
           <Link 
             to="/admin" 
             className="flex items-center gap-2.5 sm:gap-3 group focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-xl py-1 px-1.5 -ml-1.5 transition-transform active:scale-98"
-            title="Current news - Admin"
+            title="Current News Admin"
             id="admin-brand-link"
           >
             <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl overflow-hidden bg-slate-950 shadow-xs border border-slate-200 dark:border-slate-800 shrink-0 flex items-center justify-center p-0.5 group-hover:shadow-md transition-shadow">
               <img 
                 src="/CurrentNews.png" 
                 alt="Current News Logo" 
-                className="w-full h-full object-contain"
+                className="w-full h-full object-contain" 
               />
             </div>
-            <span className="font-baloo text-lg sm:text-2xl font-bold tracking-tight text-slate-950 dark:text-white leading-none antialiased">
-              Current news - Admin
+            <span className="font-lora text-lg sm:text-2xl font-semibold tracking-tight text-slate-950 dark:text-white leading-none antialiased">
+              Current News Admin
             </span>
           </Link>
 
