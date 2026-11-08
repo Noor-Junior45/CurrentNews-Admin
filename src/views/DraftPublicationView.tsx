@@ -354,7 +354,10 @@ export default function DraftPublicationView(): React.JSX.Element {
       // 2. Save to server repository (Neon Postgres + R2 dual-write) with auto-refreshing Bearer token
       const { ok, status, data: savedData, error: saveErr, code: saveCode } = await adminFetch('/api/admin/articles', {
         method: 'POST',
-        body: JSON.stringify(fullPostToSave)
+        body: JSON.stringify({
+          ...fullPostToSave,
+          isUpdate: Boolean(isEditing),
+        })
       });
 
       if (!ok) {

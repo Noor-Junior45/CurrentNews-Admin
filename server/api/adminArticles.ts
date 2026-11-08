@@ -342,6 +342,93 @@ export async function handleAdminCreateOrUpdateArticle(req: Request, res: Respon
   const insertCreatedAt = adminCreatedAt ?? now;
 
   if (isNeonConfigured()) {
+    const executeInsert = async (slugToUse: string) => {
+      const insertSql = `
+        INSERT INTO articles (
+          id, slug, title, excerpt, content, category, hashtags,
+          youtube_url, facebook_url, custom_links,
+          image_url, image_url_fallback, image_urls, image_urls_fallback,
+          image_position, gallery_positions,
+          author_uid, author_name, author_email,
+          status, version, sync_pending, created_at, updated_at, published_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7,
+          $8, $9, $10,
+          $11, $12, $13, $14,
+          $15, $16,
+          $17, $18, $19,
+          $20, 1, true, $21, $22, $23
+        )
+        ON CONFLICT (id) DO NOTHING
+        RETURNING *;
+      `;
+      const values = [
+        articleId,
+        slugToUse,
+        data.title,
+        excerpt,
+        sanitizedContent,
+        data.category,
+        data.hashtags,
+        data.youtubeUrl,
+        data.facebookUrl,
+        data.customLinks,
+        data.imageUrl,
+        data.imageUrlFallback,
+        data.imageUrls,
+        data.imageUrlsFallback,
+        data.imagePosition,
+        data.galleryPositions,
+        user.uid,
+        authorName,
+        user.email || '',
+        data.status,
+        insertCreatedAt,
+        now,
+        insertPublishedAt
+      ];
+      return query(insertSql, values);
+    };
+
+    const runInsert = async () => {
+      let dbRes;
+      try {
+        dbRes = await executeInsert(slug);
+      } catch (err: any) {
+        if (err?.code === '23505') {
+          // Slug UNIQUE constraint violation: retry once with random suffix
+          slug = `${slug}-${crypto.randomBytes(3).toString('hex')}`;
+          try {
+            dbRes = await executeInsert(slug);
+          } catch (retryErr: any) {
+            console.error('[Admin API] Neon insert retry error:', retryErr);
+            return res.status(500).json({
+              success: false,
+              error: 'Database insert failed on slug retry: ' + (retryErr?.message || 'Unique constraint error')
+            });
+          }
+        } else {
+          console.error('[Admin API] Neon insert error:', err);
+          return res.status(500).json({
+            success: false,
+            error: 'Database insert failed: ' + (err?.message || 'Internal error')
+          });
+        }
+      }
+
+      if (dbRes.rows.length === 0) {
+        // ON CONFLICT (id) DO NOTHING hit an existing row
+        return res.status(409).json({
+          success: false,
+          error: 'An article with this ID already exists',
+          code: 'conflict'
+        });
+      }
+
+      rawDbRow = dbRes.rows[0];
+      neonArticle = mapRowToArticle(rawDbRow);
+      return null;
+    };
 
     if (isUpdate) {
       const expectedVersion = data.version ?? 1;
@@ -442,117 +529,44 @@ export async function handleAdminCreateOrUpdateArticle(req: Request, res: Respon
         // Re-select the id to determine exact failure condition
         const selectRes = await query('SELECT id, author_uid, version FROM articles WHERE id = $1', [articleId]);
         if (selectRes.rows.length === 0) {
-          return res.status(404).json({
-            success: false,
-            error: 'Article not found',
-            code: 'not_found'
-          });
-        }
-        const existing = selectRes.rows[0];
-        if (!isAdmin && existing.author_uid !== user.uid) {
-          return res.status(403).json({
-            success: false,
-            error: 'Forbidden: You can only edit your own articles',
-            code: 'forbidden'
-          });
-        }
-        return res.status(409).json({
-          success: false,
-          error: 'This article was changed elsewhere, please reload',
-          code: 'version_conflict',
-          serverVersion: existing.version,
-          clientVersion: expectedVersion
-        });
-      }
-
-      rawDbRow = dbRes.rows[0];
-      neonArticle = mapRowToArticle(rawDbRow);
-    } else {
-      // INSERT new article
-      const executeInsert = async (slugToUse: string) => {
-        const insertSql = `
-          INSERT INTO articles (
-            id, slug, title, excerpt, content, category, hashtags,
-            youtube_url, facebook_url, custom_links,
-            image_url, image_url_fallback, image_urls, image_urls_fallback,
-            image_position, gallery_positions,
-            author_uid, author_name, author_email,
-            status, version, sync_pending, created_at, updated_at, published_at
-          ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7,
-            $8, $9, $10,
-            $11, $12, $13, $14,
-            $15, $16,
-            $17, $18, $19,
-            $20, 1, true, $21, $22, $23
-          )
-          ON CONFLICT (id) DO NOTHING
-          RETURNING *;
-        `;
-        const values = [
-          articleId,
-          slugToUse,
-          data.title,
-          excerpt,
-          sanitizedContent,
-          data.category,
-          data.hashtags,
-          data.youtubeUrl,
-          data.facebookUrl,
-          data.customLinks,
-          data.imageUrl,
-          data.imageUrlFallback,
-          data.imageUrls,
-          data.imageUrlsFallback,
-          data.imagePosition,
-          data.galleryPositions,
-          user.uid,
-          authorName,
-          user.email || '',
-          data.status,
-          insertCreatedAt,
-          now,
-          insertPublishedAt
-        ];
-        return query(insertSql, values);
-      };
-
-      let dbRes;
-      try {
-        dbRes = await executeInsert(slug);
-      } catch (err: any) {
-        if (err?.code === '23505') {
-          // Slug UNIQUE constraint violation: retry once with random suffix
-          slug = `${slug}-${crypto.randomBytes(3).toString('hex')}`;
-          try {
-            dbRes = await executeInsert(slug);
-          } catch (retryErr: any) {
-            console.error('[Admin API] Neon insert retry error:', retryErr);
-            return res.status(500).json({
+          const isExplicitIsUpdate = req.body.isUpdate !== undefined;
+          const isAuthor = !req.body.authorId || req.body.authorId === user.uid || req.body.author_uid === user.uid;
+          if (!isExplicitIsUpdate && (isAdmin || isAuthor)) {
+            // Safety net: Treat as INSERT instead of returning 404
+            const insertErr = await runInsert();
+            if (insertErr) return insertErr;
+          } else {
+            return res.status(404).json({
               success: false,
-              error: 'Database insert failed on slug retry: ' + (retryErr?.message || 'Unique constraint error')
+              error: 'Article not found',
+              code: 'not_found'
             });
           }
         } else {
-          console.error('[Admin API] Neon insert error:', err);
-          return res.status(500).json({
+          const existing = selectRes.rows[0];
+          if (!isAdmin && existing.author_uid !== user.uid) {
+            return res.status(403).json({
+              success: false,
+              error: 'Forbidden: You can only edit your own articles',
+              code: 'forbidden'
+            });
+          }
+          return res.status(409).json({
             success: false,
-            error: 'Database insert failed: ' + (err?.message || 'Internal error')
+            error: 'This article was changed elsewhere, please reload',
+            code: 'version_conflict',
+            serverVersion: existing.version,
+            clientVersion: expectedVersion
           });
         }
+      } else {
+        rawDbRow = dbRes.rows[0];
+        neonArticle = mapRowToArticle(rawDbRow);
       }
-
-      if (dbRes.rows.length === 0) {
-        // ON CONFLICT (id) DO NOTHING hit an existing row
-        return res.status(409).json({
-          success: false,
-          error: 'An article with this ID already exists',
-          code: 'conflict'
-        });
-      }
-
-      rawDbRow = dbRes.rows[0];
-      neonArticle = mapRowToArticle(rawDbRow);
+    } else {
+      // INSERT new article
+      const insertErr = await runInsert();
+      if (insertErr) return insertErr;
     }
 
     // PART D: Live sync to Cloudflare D1 reader copy
@@ -621,6 +635,7 @@ export async function handleAdminCreateOrUpdateArticle(req: Request, res: Respon
     authorName,
     authorEmail: user.email || '',
     status: data.status,
+    version: neonArticle?.version ?? (isUpdate ? (data.version ? data.version + 1 : 2) : 1),
     createdAt: (neonArticle?.createdAt) ?? (adminCreatedAt ? adminCreatedAt.toISOString() : now.toISOString()),
     updatedAt: now.toISOString(),
     publishedAt: (neonArticle?.publishedAt) ?? (insertPublishedAt ? insertPublishedAt.toISOString() : (adminPublishedAt ? adminPublishedAt.toISOString() : null)),
