@@ -79,7 +79,7 @@ const POPULAR_TAGS = [
 ];
 
 export default function DraftPublicationView(): React.JSX.Element {
-  const { user } = useAuthState();
+  const { user, isAdmin } = useAuthState();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const editingId = searchParams.get('id');
@@ -196,9 +196,10 @@ export default function DraftPublicationView(): React.JSX.Element {
             setSelectedWriter(availableWriters.includes(p.authorName) ? p.authorName : 'custom');
           }
 
-          if (p.createdAt) {
+          const dateToDisplay = p.publishedAt || p.createdAt;
+          if (dateToDisplay) {
             try {
-              const parsedDate = new Date(p.createdAt);
+              const parsedDate = new Date(dateToDisplay);
               if (!isNaN(parsedDate.getTime())) {
                 const year = parsedDate.getFullYear();
                 const month = String(parsedDate.getMonth() + 1).padStart(2, '0');
@@ -272,7 +273,7 @@ export default function DraftPublicationView(): React.JSX.Element {
       ? editingPost.authorName 
       : (authorName.trim() || user?.displayName || availableWriters[0] || 'Current News');
 
-    const resolvedCreatedAt = (() => {
+    const resolvedDate = (() => {
       if (publishDate) {
         try {
           const [y, m, d] = publishDate.split('-').map(Number);
@@ -283,7 +284,9 @@ export default function DraftPublicationView(): React.JSX.Element {
           }
         } catch (_) {}
       }
-      return (isEditing && editingPost?.createdAt) ? editingPost.createdAt : new Date().toISOString();
+      return (isEditing && (editingPost?.publishedAt || editingPost?.createdAt))
+        ? (editingPost.publishedAt || editingPost.createdAt)
+        : new Date().toISOString();
     })();
 
     const postPayload: any = {
@@ -304,7 +307,7 @@ export default function DraftPublicationView(): React.JSX.Element {
       imageUrlsFallback: filteredImageUrlsFallback,
       imagePosition: imagePosition,
       galleryPositions: galleryPositions,
-      createdAt: resolvedCreatedAt,
+      ...(isAdmin ? { createdAt: resolvedDate, publishedAt: resolvedDate } : {}),
     };
 
     let publishedPostId = (isEditing && editingId) ? editingId : (`post_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`);
@@ -323,7 +326,8 @@ export default function DraftPublicationView(): React.JSX.Element {
         ...postPayload,
         status: targetStatus,
         version: isEditing ? (loadedVersion || editingPost?.version || 1) : 1,
-        createdAt: resolvedCreatedAt,
+        createdAt: isAdmin ? resolvedDate : (editingPost?.createdAt || new Date().toISOString()),
+        publishedAt: isAdmin ? resolvedDate : (editingPost?.publishedAt || null),
         updatedAt: new Date().toISOString(),
         likes: editingPost?.likes || 0,
         dislikes: editingPost?.dislikes || 0,

@@ -11,6 +11,7 @@ export interface Post {
   category?: string; // e.g. Politics, Tech, Sports, Opinion, Business, etc.
   createdAt: any; // Firestore Timestamp or Date representation
   updatedAt?: any; // Firestore Timestamp or Date representation
+  publishedAt?: any; // Publication timestamp representation (ISO string, Date, or epoch ms)
   status?: 'published' | 'draft'; // Publication status
   likes?: number; // Upvotes count
   dislikes?: number; // Downvotes count

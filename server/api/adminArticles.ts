@@ -97,6 +97,28 @@ function parseJsonOrPgArray(val: any): string[] {
   return [];
 }
 
+/**
+ * Helper to validate and parse date strings.
+ * Must be a valid date, not more than 1 day in the future, and not before 2000-01-01.
+ * Otherwise throws an Error('invalid_date').
+ */
+export function parseDate(val: any): Date {
+  if (val === undefined || val === null || val === '') {
+    throw new Error('invalid_date');
+  }
+  const d = new Date(val);
+  const time = d.getTime();
+  if (isNaN(time)) {
+    throw new Error('invalid_date');
+  }
+  const minDate = new Date('2000-01-01T00:00:00.000Z').getTime();
+  const maxDate = Date.now() + 24 * 60 * 60 * 1000; // not more than 1 day in the future
+  if (time < minDate || time > maxDate) {
+    throw new Error('invalid_date');
+  }
+  return d;
+}
+
 const articleSchema = z.object({
   id: z.string().trim().optional(),
   title: z.string().trim().min(1, 'Title is required').max(200, 'Title cannot exceed 200 characters'),
@@ -117,7 +139,8 @@ const articleSchema = z.object({
   authorName: z.string().trim().max(100).optional(),
   status: z.enum(['draft', 'published', 'archived']).default('draft'),
   version: z.number().int().min(1).optional(),
-  createdAt: z.string().optional(),
+  createdAt: z.string().optional().nullable(),
+  publishedAt: z.string().optional().nullable(),
 });
 
 export function mapRowToArticle(row: any): any {
@@ -195,6 +218,38 @@ export async function handleAdminCreateOrUpdateArticle(req: Request, res: Respon
 
   const data = parseResult.data;
   const isAdmin = user.role === 'admin';
+
+  let adminPublishedAt: Date | null = null;
+  let adminCreatedAt: Date | null = null;
+  let hasAdminPublishedAt = false;
+  let hasAdminCreatedAt = false;
+
+  if (isAdmin) {
+    if (data.publishedAt !== undefined && data.publishedAt !== null && String(data.publishedAt).trim() !== '') {
+      try {
+        adminPublishedAt = parseDate(data.publishedAt);
+        hasAdminPublishedAt = true;
+      } catch (err: any) {
+        return res.status(400).json({
+          success: false,
+          error: 'invalid_date',
+          code: 'invalid_date'
+        });
+      }
+    }
+    if (data.createdAt !== undefined && data.createdAt !== null && String(data.createdAt).trim() !== '') {
+      try {
+        adminCreatedAt = parseDate(data.createdAt);
+        hasAdminCreatedAt = true;
+      } catch (err: any) {
+        return res.status(400).json({
+          success: false,
+          error: 'invalid_date',
+          code: 'invalid_date'
+        });
+      }
+    }
+  }
 
   // Only admins may set status = 'published'. Writers may only save 'draft'.
   if (!isAdmin && data.status !== 'draft') {
@@ -281,8 +336,12 @@ export async function handleAdminCreateOrUpdateArticle(req: Request, res: Respon
   let syncedAt: Date | null = null;
   let rawDbRow: any = null;
 
+  const insertPublishedAt = (data.status === 'published')
+    ? (adminPublishedAt ?? adminCreatedAt ?? now)
+    : null;
+  const insertCreatedAt = adminCreatedAt ?? now;
+
   if (isNeonConfigured()) {
-    const publishedAt = data.status === 'published' ? now : null;
 
     if (isUpdate) {
       const expectedVersion = data.version ?? 1;
@@ -310,36 +369,46 @@ export async function handleAdminCreateOrUpdateArticle(req: Request, res: Respon
             version = version + 1,
             sync_pending = true,
             updated_at = $19,
-            published_at = COALESCE(articles.published_at, $20),
-            created_at = COALESCE($24, articles.created_at)
-          WHERE id = $1 AND version = $21 AND (author_uid = $22 OR $23)
+            published_at = CASE
+              WHEN $23 = true THEN $24
+              WHEN articles.published_at IS NOT NULL THEN articles.published_at
+              WHEN $18 = 'published' THEN $19
+              ELSE articles.published_at
+            END,
+            created_at = CASE
+              WHEN $25 = true THEN $26
+              ELSE articles.created_at
+            END
+          WHERE id = $1 AND version = $20 AND (author_uid = $21 OR $22)
           RETURNING *;
         `;
         const values = [
-          articleId,
-          slugToUse,
-          data.title,
-          excerpt,
-          sanitizedContent,
-          data.category,
-          data.hashtags,
-          data.youtubeUrl,
-          data.facebookUrl,
-          data.customLinks,
-          data.imageUrl,
-          data.imageUrlFallback,
-          data.imageUrls,
-          data.imageUrlsFallback,
-          data.imagePosition,
-          data.galleryPositions,
-          authorName,
-          data.status,
-          now,
-          publishedAt,
-          expectedVersion,
-          user.uid,
-          isAdmin,
-          data.createdAt ? new Date(data.createdAt) : null
+          articleId,              // $1
+          slugToUse,              // $2
+          data.title,             // $3
+          excerpt,                // $4
+          sanitizedContent,       // $5
+          data.category,          // $6
+          data.hashtags,          // $7
+          data.youtubeUrl,        // $8
+          data.facebookUrl,       // $9
+          data.customLinks,       // $10
+          data.imageUrl,          // $11
+          data.imageUrlFallback,  // $12
+          data.imageUrls,         // $13
+          data.imageUrlsFallback, // $14
+          data.imagePosition,     // $15
+          data.galleryPositions,  // $16
+          authorName,             // $17
+          data.status,            // $18
+          now,                    // $19
+          expectedVersion,        // $20
+          user.uid,               // $21
+          isAdmin,                // $22
+          hasAdminPublishedAt,    // $23
+          adminPublishedAt,       // $24
+          hasAdminCreatedAt,      // $25
+          adminCreatedAt          // $26
         ];
         return query(updateSql, values);
       };
@@ -441,9 +510,9 @@ export async function handleAdminCreateOrUpdateArticle(req: Request, res: Respon
           authorName,
           user.email || '',
           data.status,
-          data.createdAt ? new Date(data.createdAt) : now,
+          insertCreatedAt,
           now,
-          publishedAt
+          insertPublishedAt
         ];
         return query(insertSql, values);
       };
@@ -552,8 +621,9 @@ export async function handleAdminCreateOrUpdateArticle(req: Request, res: Respon
     authorName,
     authorEmail: user.email || '',
     status: data.status,
-    createdAt: now.toISOString(),
+    createdAt: (neonArticle?.createdAt) ?? (adminCreatedAt ? adminCreatedAt.toISOString() : now.toISOString()),
     updatedAt: now.toISOString(),
+    publishedAt: (neonArticle?.publishedAt) ?? (insertPublishedAt ? insertPublishedAt.toISOString() : (adminPublishedAt ? adminPublishedAt.toISOString() : null)),
   };
 
   // Legacy Dual-write: Maintain Cloudflare R2 / local feed compatibility for reader site and old apps

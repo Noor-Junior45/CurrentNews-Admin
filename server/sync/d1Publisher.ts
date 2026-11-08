@@ -105,12 +105,16 @@ export function mapNeonToD1Article(row: any): any {
     return [];
   };
 
-  const toEpoch = (val: any): number => {
-    if (!val) return Date.now();
+  const toEpoch = (val: any): number | null => {
+    if (val === undefined || val === null || val === '') return null;
     const d = new Date(val);
     const t = d.getTime();
-    return isNaN(t) ? Date.now() : t;
+    return isNaN(t) ? null : t;
   };
+
+  const publishedEpoch = toEpoch(row.published_at ?? row.publishedAt)
+    ?? toEpoch(row.created_at ?? row.createdAt)
+    ?? Date.now();
 
   return {
     id: row.id,
@@ -130,8 +134,9 @@ export function mapNeonToD1Article(row: any): any {
     imagePosition: row.image_position || 'top',
     galleryPositions: parseArray(row.gallery_positions),
     authorName: row.author_name || 'Current News',
-    publishedAt: toEpoch(row.published_at || row.created_at),
-    updatedAt: toEpoch(row.updated_at),
+    publishedAt: publishedEpoch,
+    published_at: publishedEpoch,
+    updatedAt: toEpoch(row.updated_at) ?? Date.now(),
     version: Number(row.version) || 1,
   };
 }
