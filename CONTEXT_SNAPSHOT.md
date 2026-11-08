@@ -149,7 +149,21 @@
   - Confirmed that `.env.example` contains only blank placeholder definitions with zero production values committed.
   - Verified 0 TypeScript compilation errors and 0 lint warnings across `compile_applet` and `lint_applet`.
 
+- **Phase 21 (Draft Publishing Date Picker & Responsive In-Line Layout):** [COMPLETED]
+  - Added interactive publishing date selector button to `DraftPublicationView.tsx` (CSS Selector 1 & 2):
+    - Defaults automatically to the current date (`YYYY-MM-DD`) with active "Today" indicator badge.
+    - Provides instant "Reset to Today" action when a custom date is selected.
+    - Responsive layout: divided evenly in-line on larger screens/tablets (`sm:grid-cols-2`), stacked with the date box below the category box on phone screens (`grid-cols-1`).
+    - Propagates custom or default publication date into `createdAt` in `fullPostToSave` and `server/api/adminArticles.ts` Neon PostgreSQL persistence.
+
+- **Phase 22 (Cross-Origin IFrame Date Picker Resilience — Zero SecurityError):** [COMPLETED]
+  - Eliminated uncaught browser `SecurityError: Failed to execute 'showPicker' on 'HTMLInputElement': showPicker() called from cross-origin iframe` in `src/views/DraftPublicationView.tsx`.
+  - Replaced JavaScript-driven `.showPicker()` with a transparent native `<input type="date">` overlay spanning the button display card (`absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10 [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0`).
+  - User click and touch gestures interact directly with the native browser input, opening the OS datepicker natively across desktop, iOS, Android, and cross-origin iframe preview containers without invoking restricted JavaScript methods.
+  - Verified 0 TypeScript compilation errors and 0 lint warnings across `compile_applet` and `lint_applet`.
+
 ## 4. Immediate Next Step
 - Application is live and accessible in the AI Studio preview iframe, ready for newsroom operations.
+
 
 

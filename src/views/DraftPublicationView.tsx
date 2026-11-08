@@ -26,8 +26,33 @@ import {
   Link2,
   Sparkles,
   TrendingUp,
-  Tag
+  Tag,
+  Calendar
 } from 'lucide-react';
+
+const getTodayDateString = (): string => {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const formatDisplayDate = (dateStr: string): string => {
+  if (!dateStr) return '';
+  try {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const dateObj = new Date(y, m - 1, d);
+    if (isNaN(dateObj.getTime())) return dateStr;
+    return dateObj.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
+  } catch {
+    return dateStr;
+  }
+};
 
 const CATEGORY_SUGGESTED_TAGS: Record<string, string[]> = {
   Jharkhand: ['Jharkhand', 'Ranchi', 'Dhanbad', 'Jamshedpur', 'Bokaro', 'JharkhandNews', 'HemantSoren', 'Deoghar'],
@@ -77,6 +102,9 @@ export default function DraftPublicationView(): React.JSX.Element {
   const [category, setCategory] = useState('General');
   const [targetStatus, setTargetStatus] = useState<'published' | 'draft'>('published');
   const [sendEmailAlert, setSendEmailAlert] = useState(true);
+  const [publishDate, setPublishDate] = useState<string>(getTodayDateString());
+  const [isCustomDate, setIsCustomDate] = useState<boolean>(false);
+  const dateInputRef = useRef<HTMLInputElement>(null);
 
   // Images state — all photos default to end of story
   const [imageUrl, setImageUrl] = useState('');
@@ -167,6 +195,20 @@ export default function DraftPublicationView(): React.JSX.Element {
             setAuthorName(p.authorName);
             setSelectedWriter(availableWriters.includes(p.authorName) ? p.authorName : 'custom');
           }
+
+          if (p.createdAt) {
+            try {
+              const parsedDate = new Date(p.createdAt);
+              if (!isNaN(parsedDate.getTime())) {
+                const year = parsedDate.getFullYear();
+                const month = String(parsedDate.getMonth() + 1).padStart(2, '0');
+                const day = String(parsedDate.getDate()).padStart(2, '0');
+                const formatted = `${year}-${month}-${day}`;
+                setPublishDate(formatted);
+                setIsCustomDate(formatted !== getTodayDateString());
+              }
+            } catch (_) {}
+          }
         } else {
           console.error('[DraftPublicationView] Empty article response:', { status, body: data });
           setErrorMsg('Article not found (404)');
@@ -200,6 +242,8 @@ export default function DraftPublicationView(): React.JSX.Element {
     setTargetStatus('published');
     setSelectedWriter(availableWriters[0] || 'Current News');
     setAuthorName(user?.displayName || availableWriters[0] || 'Current News');
+    setPublishDate(getTodayDateString());
+    setIsCustomDate(false);
   };
 
   const handleFormSubmit = async (e: React.FormEvent) => {
@@ -228,6 +272,20 @@ export default function DraftPublicationView(): React.JSX.Element {
       ? editingPost.authorName 
       : (authorName.trim() || user?.displayName || availableWriters[0] || 'Current News');
 
+    const resolvedCreatedAt = (() => {
+      if (publishDate) {
+        try {
+          const [y, m, d] = publishDate.split('-').map(Number);
+          const now = new Date();
+          const chosenDate = new Date(y, m - 1, d, now.getHours(), now.getMinutes(), now.getSeconds());
+          if (!isNaN(chosenDate.getTime())) {
+            return chosenDate.toISOString();
+          }
+        } catch (_) {}
+      }
+      return (isEditing && editingPost?.createdAt) ? editingPost.createdAt : new Date().toISOString();
+    })();
+
     const postPayload: any = {
       title: title.trim(),
       content: content,
@@ -246,6 +304,7 @@ export default function DraftPublicationView(): React.JSX.Element {
       imageUrlsFallback: filteredImageUrlsFallback,
       imagePosition: imagePosition,
       galleryPositions: galleryPositions,
+      createdAt: resolvedCreatedAt,
     };
 
     let publishedPostId = (isEditing && editingId) ? editingId : (`post_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`);
@@ -264,7 +323,7 @@ export default function DraftPublicationView(): React.JSX.Element {
         ...postPayload,
         status: targetStatus,
         version: isEditing ? (loadedVersion || editingPost?.version || 1) : 1,
-        createdAt: isEditing ? (editingPost?.createdAt || new Date().toISOString()) : new Date().toISOString(),
+        createdAt: resolvedCreatedAt,
         updatedAt: new Date().toISOString(),
         likes: editingPost?.likes || 0,
         dislikes: editingPost?.dislikes || 0,
@@ -464,27 +523,88 @@ export default function DraftPublicationView(): React.JSX.Element {
                 />
               </div>
 
-              {/* Category selector — Full width */}
-              <div className="w-full">
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2 font-mono" htmlFor="post-category">
-                  Category *
-                </label>
-                <select
-                  id="post-category"
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
-                  className="w-full px-4 py-3 border border-slate-300 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 block font-semibold text-slate-800 dark:text-slate-200 shadow-2xs box-border"
-                >
-                  <option value="General">General News</option>
-                  <option value="Jharkhand">Jharkhand & Regional News</option>
-                  <option value="Politics">Politics & Government</option>
-                  <option value="Tech">Technology & Science</option>
-                  <option value="Sports">Sports</option>
-                  <option value="Opinion">Editorial & Opinion</option>
-                  <option value="Business">Business & Finance</option>
-                  <option value="Health">Health & Lifestyle</option>
-                  <option value="World">World Dispatches</option>
-                </select>
+              {/* Category selector & Publishing Date — In-line on larger screens/tabs, stacked on phone screens */}
+              <div className="w-full grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+                {/* Category selector */}
+                <div className="w-full">
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2 font-mono" htmlFor="post-category">
+                    Category *
+                  </label>
+                  <select
+                    id="post-category"
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value)}
+                    className="w-full px-4 py-3 border border-slate-300 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 block font-semibold text-slate-800 dark:text-slate-200 shadow-2xs box-border cursor-pointer transition-colors"
+                  >
+                    <option value="General">General News</option>
+                    <option value="Jharkhand">Jharkhand & Regional News</option>
+                    <option value="Politics">Politics & Government</option>
+                    <option value="Tech">Technology & Science</option>
+                    <option value="Sports">Sports</option>
+                    <option value="Opinion">Editorial & Opinion</option>
+                    <option value="Business">Business & Finance</option>
+                    <option value="Health">Health & Lifestyle</option>
+                    <option value="World">World Dispatches</option>
+                  </select>
+                </div>
+
+                {/* Publishing Date button/box */}
+                <div className="w-full">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider font-mono flex items-center gap-1.5" htmlFor="post-publish-date">
+                      <Calendar className="w-3.5 h-3.5 text-indigo-500" />
+                      <span>Publish Date</span>
+                    </label>
+                    {isCustomDate && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPublishDate(getTodayDateString());
+                          setIsCustomDate(false);
+                        }}
+                        className="text-[11px] font-mono font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                        title="Reset back to current date"
+                      >
+                        Reset to Today
+                      </button>
+                    )}
+                  </div>
+                  <div className="relative group">
+                    <div
+                      id="choose-publish-date-display"
+                      className="w-full px-4 py-3 border border-slate-300 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/60 group-focus-within:ring-2 group-focus-within:ring-indigo-500/20 group-focus-within:border-indigo-500 flex items-center justify-between font-semibold text-slate-800 dark:text-slate-200 shadow-2xs box-border transition-all pointer-events-none"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <Calendar className="w-4 h-4 text-indigo-500 shrink-0" />
+                        <span className="truncate">
+                          {formatDisplayDate(publishDate)}
+                          {!isCustomDate && (
+                            <span className="ml-2 text-[11px] font-mono font-medium px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60">
+                              Today
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                      <span className="text-xs font-mono text-indigo-600 dark:text-indigo-400 font-semibold shrink-0 ml-2">
+                        Choose Date
+                      </span>
+                    </div>
+                    <input
+                      ref={dateInputRef}
+                      id="post-publish-date"
+                      type="date"
+                      value={publishDate}
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          setPublishDate(e.target.value);
+                          setIsCustomDate(e.target.value !== getTodayDateString());
+                        }
+                      }}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10 [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0"
+                      aria-label="Choose publishing date"
+                    />
+                  </div>
+                </div>
               </div>
 
               {/* Photo Attachment Section — Moved above manuscript section per editorial workflow */}

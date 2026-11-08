@@ -5,7 +5,7 @@ The following files, components, and logic structures represent the standalone B
 1. **Admin Editorial Views (`src/views/`)**
    - `src/views/AdminView.tsx`: Central router dispatching to dedicated sub-views via URL search param (`?focus=draft`, `?focus=publications`, `?focus=audience`, `?focus=dashboard`).
    - `src/views/AdminDashboardView.tsx`: Editorial Author Byline manager with inline pen name editing, Neon/R2 sync stats, and 5-card metric ledger (`Live Active Dispatches`, `Draft Manuscripts`, `Media Broadcasts`, `Audience Subscribers`, `Published Image`).
-   - `src/views/DraftPublicationView.tsx`: Production article composer with full-width layout, photo attachment manager placed directly above the manuscript, category selector, smart hashtags, reference link manager, auto-expanding title textarea, and save/publish flows.
+   - `src/views/DraftPublicationView.tsx`: Production article composer with full-width layout, photo attachment manager placed directly above the manuscript, responsive in-line category and publishing date picker button (stacked on phone, divided in-line on larger screens/tabs with default current date fallback), smart hashtags, reference link manager, auto-expanding title textarea, and save/publish flows.
    - `src/views/CurrentPublicationsView.tsx`: Publications management ledger with persistent sticky header, single-line mobile filter tabs (`All`, `Published`, `Drafts`), edit shortcuts, archive/delete controls, and D1 sync status indicators (`Live`, `Sync pending`, `Sync failed`).
    - `src/views/AudienceRegistryView.tsx`: Push notification broadcast console with live subscriber device counter, email testing utility, and full subscriber registry.
 

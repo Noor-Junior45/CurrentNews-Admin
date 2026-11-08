@@ -117,6 +117,7 @@ const articleSchema = z.object({
   authorName: z.string().trim().max(100).optional(),
   status: z.enum(['draft', 'published', 'archived']).default('draft'),
   version: z.number().int().min(1).optional(),
+  createdAt: z.string().optional(),
 });
 
 export function mapRowToArticle(row: any): any {
@@ -309,7 +310,8 @@ export async function handleAdminCreateOrUpdateArticle(req: Request, res: Respon
             version = version + 1,
             sync_pending = true,
             updated_at = $19,
-            published_at = COALESCE(articles.published_at, $20)
+            published_at = COALESCE(articles.published_at, $20),
+            created_at = COALESCE($24, articles.created_at)
           WHERE id = $1 AND version = $21 AND (author_uid = $22 OR $23)
           RETURNING *;
         `;
@@ -336,7 +338,8 @@ export async function handleAdminCreateOrUpdateArticle(req: Request, res: Respon
           publishedAt,
           expectedVersion,
           user.uid,
-          isAdmin
+          isAdmin,
+          data.createdAt ? new Date(data.createdAt) : null
         ];
         return query(updateSql, values);
       };
@@ -438,7 +441,7 @@ export async function handleAdminCreateOrUpdateArticle(req: Request, res: Respon
           authorName,
           user.email || '',
           data.status,
-          now,
+          data.createdAt ? new Date(data.createdAt) : now,
           now,
           publishedAt
         ];
