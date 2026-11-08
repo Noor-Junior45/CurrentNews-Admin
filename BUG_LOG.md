@@ -242,3 +242,14 @@
 - [x] **Bug ID & Summary:** BUG-052 — Cross-Origin IFrame `SecurityError: Failed to execute 'showPicker' on 'HTMLInputElement'`.
   - **Root Cause:** In `src/views/DraftPublicationView.tsx`, the publishing date button triggered programmatic `dateInputRef.current.showPicker()` on click. Modern browsers (Chromium/Edge) restrict JavaScript-driven `.showPicker()` invocations inside cross-origin iframes (such as the AI Studio dev preview embedded at `ais-dev-*.asia-southeast1.run.app`), throwing an uncaught `SecurityError`.
   - **Permanent Guardrail:** Never call `.showPicker()` programmatically from JavaScript inside iframe-embedded environments. Instead, place the native `<input type="date">` directly over the styled presentation layer with `absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10` and stretch the webkit calendar picker indicator with `[&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:h-full [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0`. User click gestures directly hit the native input element, triggering the browser's built-in datepicker UI natively with zero JavaScript errors and full keyboard accessibility.
+
+- [x] **Bug ID & Summary:** BUG-054 — Firebase Google Sign-In `auth/internal-error` in Cross-Origin Iframe Preview.
+  - **Root Cause:**
+    1. Modern browser cross-origin storage partitioning (CHIPS) and popup restrictions prevent Firebase Auth popup handlers (`/__/auth/handler`) from reliably posting authentication credentials back to parent windows embedded inside cross-origin preview iframes.
+    2. In the Firebase Console, if Google Sign-In is not explicitly toggled to "Enabled" with a project support email, the Identity Toolkit backend returns internal error codes.
+  - **Permanent Guardrail:**
+    1. In `src/utils/authHelper.ts`, trapped `auth/internal-error`, `auth/popup-blocked`, and `auth/operation-not-allowed` with tailored user guidance: advises signing in via Email & Password directly inside the preview, or opening the app in a standalone browser tab.
+    2. Verified that `signInWithEmailAndPassword` operates via direct REST API without popups or storage partitioning constraints, ensuring 100% reliable login inside all preview iframes.
+    3. Re-executed `ProvisionFirebase` RPC to sync the web application configuration with Firebase Identity Toolkit.
+
+

@@ -151,6 +151,51 @@ export async function signInWithGoogleSafe(): Promise<AuthResult> {
       };
     }
 
+    if (
+      code === 'auth/internal-error' ||
+      message.includes('auth/internal-error') ||
+      message.includes('internal-error')
+    ) {
+      const isIframe = typeof window !== 'undefined' && window.self !== window.top;
+      const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
+      let errorMsg = 'Google Sign-In could not complete (auth/internal-error).';
+      if (isIframe) {
+        errorMsg = `Google popup communication was restricted inside this preview iframe. Please sign in using your Email & Password directly below, or open the app directly in a full browser tab.`;
+      } else {
+        errorMsg = `Google Sign-In could not initialize. Please verify Google is enabled in your Firebase Console under Authentication > Sign-in method, or sign in using Email & Password below.`;
+      }
+      return {
+        success: false,
+        cancelled: false,
+        code: 'auth/internal-error',
+        error: errorMsg,
+      };
+    }
+
+    if (
+      code === 'auth/popup-blocked' ||
+      message.includes('popup-blocked')
+    ) {
+      return {
+        success: false,
+        cancelled: false,
+        code: 'auth/popup-blocked',
+        error: 'The Google Sign-In popup was blocked by your browser. Please allow popups or sign in with Email & Password below.',
+      };
+    }
+
+    if (
+      code === 'auth/operation-not-allowed' ||
+      message.includes('operation-not-allowed')
+    ) {
+      return {
+        success: false,
+        cancelled: false,
+        code: 'auth/operation-not-allowed',
+        error: 'Google Sign-In is not enabled in your Firebase Console. Go to Firebase Console > Authentication > Sign-in method, click Google, and enable it.',
+      };
+    }
+
     console.warn('[Auth Warning]:', err);
     return {
       success: false,

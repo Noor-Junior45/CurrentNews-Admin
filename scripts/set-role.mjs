@@ -35,6 +35,7 @@ import path from 'path';
 function getProjectId() {
   if (process.env.FIREBASE_PROJECT_ID) return process.env.FIREBASE_PROJECT_ID.trim();
   if (process.env.GCLOUD_PROJECT) return process.env.GCLOUD_PROJECT.trim();
+  if (process.env.GOOGLE_CLOUD_PROJECT) return process.env.GOOGLE_CLOUD_PROJECT.trim();
   try {
     const cfgPath = path.join(process.cwd(), 'firebase-applet-config.json');
     if (fs.existsSync(cfgPath)) {
@@ -91,6 +92,11 @@ async function setRole() {
     process.exit(0);
   } catch (err) {
     console.error(`\n[FAILED] Error setting role for ${email}:`, err?.message || err);
+    if (err?.code === 'auth/user-not-found') {
+      console.error(`\n[TIP] User "${email}" has not created an account yet.`);
+      console.error(`      Ask the writer/admin to sign in with Google or Email at the Admin portal first,`);
+      console.error(`      then run this command to grant them access.\n`);
+    }
     process.exit(1);
   }
 }

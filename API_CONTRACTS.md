@@ -186,49 +186,9 @@
   { "success": true, "articles": [ /* Array of Post objects */ ] }
   ```
 
-### `POST /api/articles/save`
-- **Method:** `POST`
-- **Headers:** `Content-Type: application/json`
-- **Body:** `{ "post": { "id": "...", "title": "...", "content": "...", "status": "published", ... } }`
-- **Action:** Writes document to `articles/${post.id}.json` in Cloudflare R2 bucket `currentnews-media`, mirrors to local disk `data/articles/${post.id}.json`, and rebuilds `articles/feed.json`.
-- **Response Shape (200 OK):**
-  ```json
-  { "success": true, "message": "Article saved and feed updated successfully" }
-  ```
+### Legacy Write Routes (Decommissioned & Locked)
+> **Notice:** The legacy unauthenticated/disk write routes (`POST /api/articles/save`, `DELETE /api/articles/:id`, `POST /api/articles/sync`, `POST /api/articles/migrate-images`) have been permanently removed. All editorial dispatches, drafts, and updates are committed directly to **Neon PostgreSQL** via the authenticated `POST /api/admin/articles` endpoint (see Section 8 below).
 
-### `DELETE /api/articles/:id`
-- **Method:** `DELETE`
-- **Params:** `id` (string document ID)
-- **Action:** Removes `articles/${id}.json` from Cloudflare R2 and removes article from `articles/feed.json`.
-- **Response Shape (200 OK):**
-  ```json
-  { "success": true, "message": "Article deleted and feed updated" }
-  ```
-
-### `POST /api/articles/sync`
-- **Method:** `POST`
-- **Headers:** `Content-Type: application/json` (supported up to 25MB payload)
-- **Body:** `{ "posts": [ /* Array of Post objects */ ] }`
-- **Action:** Bulk uploads all published articles to Cloudflare R2 and compiles unified `articles/feed.json`.
-- **Response Shape (200 OK):**
-  ```json
-  { "success": true, "message": "Successfully synced 41 of 41 articles to Cloudflare R2", "synced": 41, "total": 41 }
-  ```
-
-### `POST /api/articles/migrate-images`
-- **Method:** `POST`
-- **Headers:** `Content-Type: application/json`
-- **Action:** Scans all articles on disk and Cloudflare R2, extracts inline base64 image data from `imageUrl`, `imageUrlFallback`, `imageUrls`, `imageUrlsFallback` and `<img src="data:...">` in HTML content, decodes and uploads to `img/{postId}-{n}.webp`, updates image references to `https://media.currentnews.blog/img/{postId}-{n}.webp`, rewrites full post JSON files, and recompiles a lightweight 37 KB `articles/feed.json`.
-- **Response Shape (200 OK):**
-  ```json
-  {
-    "success": true,
-    "message": "Migration complete. Processed 41 articles, migrated 46 base64 images.",
-    "articlesProcessed": 41,
-    "imagesMigrated": 46,
-    "feedSizeKb": 37
-  }
-  ```
 
 ### Direct CDN URL Contracts:
 - **Feed CDN (Light Index, ~37 KB):** `https://media.currentnews.blog/articles/feed.json`

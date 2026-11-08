@@ -200,11 +200,11 @@ export default function AdminNavbar(): React.JSX.Element {
     <>
       <header className="sticky top-0 z-40 w-full bg-white/95 dark:bg-slate-950/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 shadow-2xs select-none">
         {/* LINE 1: Logo & Name on Left | Circle Profile Button on Right */}
-        <div className="max-w-7xl mx-auto px-3 sm:px-6 h-14 sm:h-15 flex items-center justify-between gap-3">
+        <div className="w-full px-3 sm:px-6 lg:px-8 xl:px-10 h-14 sm:h-15 flex items-center justify-between gap-3">
           {/* Left: Brand Identity with Lora font */}
           <Link 
             to="/admin" 
-            className="flex items-center gap-2.5 sm:gap-3 group focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-xl py-1 px-1.5 -ml-1.5 transition-transform active:scale-98"
+            className="flex items-center gap-2.5 sm:gap-3 group focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-xl py-1 px-1.5 -ml-1.5 transition-transform active:scale-98 shrink-0"
             title="Current News Admin"
             id="admin-brand-link"
           >

@@ -11,12 +11,22 @@ export interface SignedPostResult {
   error?: string;
 }
 
+export function isD1SyncConfigured(): boolean {
+  return Boolean(
+    process.env.SYNC_SECRET && process.env.SYNC_SECRET.trim().length > 0 &&
+    process.env.WORKER_BASE_URL && process.env.WORKER_BASE_URL.trim().length > 0
+  );
+}
+
 /**
  * Sends a cryptographically signed POST request to the Cloudflare Worker internal API.
  * Uses HMAC-SHA256(SYNC_SECRET, timestamp + "." + rawBody).
  * Includes 10s timeout and 3 attempts with exponential backoff.
  */
 export async function signedPost(path: string, body: any): Promise<SignedPostResult> {
+  if (!isD1SyncConfigured()) {
+    return { ok: false, status: 500, error: 'D1 sync is skipped: SYNC_SECRET or WORKER_BASE_URL is not configured' };
+  }
   const secret = (process.env.SYNC_SECRET || '').trim();
   if (!secret) {
     return { ok: false, status: 500, error: 'SYNC_SECRET environment variable is not configured' };
@@ -180,7 +190,7 @@ export async function syncSingleArticle(row: any): Promise<{ success: boolean; e
  * Processes up to `limit` pending outbox articles from Neon, ordered oldest updated first.
  */
 export async function syncPendingArticles(limit: number = 50): Promise<{ processed: number; succeeded: number; failed: number }> {
-  if (!isNeonConfigured()) {
+  if (!isNeonConfigured() || !isD1SyncConfigured()) {
     return { processed: 0, succeeded: 0, failed: 0 };
   }
 

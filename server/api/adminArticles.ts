@@ -6,7 +6,7 @@ import { query, isNeonConfigured } from '../db/neon.ts';
 import { adminAuth } from '../auth/firebaseAdmin.ts';
 import { saveArticleToR2, deleteArticleFromR2, getFeedFromR2, loadLocalFeed, extractPlainExcerpt, getArticleFromR2 } from '../../src/server/r2Articles.ts';
 import { slugify } from '../../src/types.ts';
-import { syncSingleArticle, unpublishArticleFromD1, syncPendingArticles } from '../sync/d1Publisher.ts';
+import { syncSingleArticle, unpublishArticleFromD1, syncPendingArticles, isD1SyncConfigured } from '../sync/d1Publisher.ts';
 
 const ALLOWED_CATEGORIES = [
   'Jharkhand', 'Politics', 'Tech', 'Sports', 'Business', 'Health',
@@ -569,8 +569,8 @@ export async function handleAdminCreateOrUpdateArticle(req: Request, res: Respon
       if (insertErr) return insertErr;
     }
 
-    // PART D: Live sync to Cloudflare D1 reader copy
-    if (rawDbRow) {
+    // PART D: Live sync to Cloudflare D1 reader copy (if configured)
+    if (rawDbRow && isD1SyncConfigured()) {
       try {
         const d1SyncRes = await syncSingleArticle(rawDbRow);
         if (d1SyncRes.success) {
@@ -999,6 +999,16 @@ export async function handleAdminGetMe(req: Request, res: Response) {
 export async function handleAdminRunSync(req: Request, res: Response) {
   if (!req.user || req.user.role !== 'admin') {
     return res.status(403).json({ success: false, error: 'Forbidden: Admin role required' });
+  }
+
+  if (!isD1SyncConfigured()) {
+    return res.status(200).json({
+      success: true,
+      message: 'D1 edge sync skipped: SYNC_SECRET or WORKER_BASE_URL is not configured yet.',
+      processed: 0,
+      succeeded: 0,
+      failed: 0,
+    });
   }
 
   try {

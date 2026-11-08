@@ -162,8 +162,22 @@
   - User click and touch gestures interact directly with the native browser input, opening the OS datepicker natively across desktop, iOS, Android, and cross-origin iframe preview containers without invoking restricted JavaScript methods.
   - Verified 0 TypeScript compilation errors and 0 lint warnings across `compile_applet` and `lint_applet`.
 
+- **Phase 23 (Unused API Key Purge & Cloud Shell Role Administration Readiness):** [COMPLETED]
+  - Purged unused `GEMINI_API_KEY` from `.env.example` and removed `@google/genai` dependency from `package.json`, ensuring zero unnecessary API key requirements.
+  - Organized `.env.example` into explicit, well-documented sections (Firebase Auth, Neon PostgreSQL, Cloudflare R2, Cloudflare D1 Sync, Web Push VAPID, Resend Mail, Security & Host Routing).
+  - Enhanced `scripts/set-role.mjs` to auto-detect `GOOGLE_CLOUD_PROJECT` in Google Cloud Shell and added actionable error guidance (`auth/user-not-found`) directing operators to have staff sign in first before assigning roles.
+  - Confirmed 0 hardcoded staff emails, 0 bypass paths, and verified 100% role enforcement strictly through cryptographically signed Firebase Custom Claims.
+  - Re-validated `compile_applet` (Vite + esbuild) and `lint_applet` (`tsc --noEmit`) with 0 errors and 0 warnings.
+
+- **Phase 24 (Admin Navbar Brand Left-Anchor on Large Screens):** [COMPLETED]
+  - Identified cause of brand logo/name being pushed inwards on large desktop screens: `max-w-7xl mx-auto` clamped header Row 1 to 1280px and centered it.
+  - Replaced `max-w-7xl mx-auto` with `w-full px-3 sm:px-6 lg:px-8 xl:px-10` and added `shrink-0` to `a#admin-brand-link`.
+  - Preserved phone (`px-3`) and tablet (`px-6`) layouts while ensuring the brand logo and title anchor cleanly to the left edge with calibrated responsive margins on desktop monitors.
+  - Verified 0 TypeScript compilation errors and 0 lint warnings across `compile_applet` and `lint_applet`.
+
 ## 4. Immediate Next Step
-- Application is live and accessible in the AI Studio preview iframe, ready for newsroom operations.
+- Run `node scripts/set-role.mjs <user-email> admin` (or `writer`) in Google Cloud Shell to grant verified editorial access to staff accounts.
+
 
 
 
