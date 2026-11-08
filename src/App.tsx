@@ -30,7 +30,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <ScrollToTop />
-      <div className="flex flex-col min-h-screen bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 overflow-x-hidden" id="app-root-container">
+      <div className="flex flex-col min-h-screen bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 overflow-x-clip" id="app-root-container">
         <main className="flex-grow">
           <Routes>
             {/* 1. Root landing page: Login / Editorial Authentication Portal */}

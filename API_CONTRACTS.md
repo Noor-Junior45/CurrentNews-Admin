@@ -512,6 +512,58 @@ All `/internal/*` routes require:
 - **Optimistic Locking:**
   - If existing server `version > clientVersion`, rejects with:
     - `409 Conflict`: `{ "success": false, "error": "This article was changed elsewhere, please reload", "code": "version_conflict", "serverVersion": number, "clientVersion": number }`
+
+## 12b. Audience Registry & Push Notifications API Contracts
+
+### `GET /api/push/subscribers-count`
+- **Method:** `GET`
+- **Headers:** `Authorization: Bearer <Firebase_ID_Token>` (Mandatory via `adminFetch`)
+- **Access:** `admin` or `writer` custom claim role
+- **Response Shapes:**
+  - `200 OK`:
+    ```json
+    { "success": true, "count": 142 }
+    ```
+  - `401 Unauthorized`:
+    ```json
+    { "success": false, "error": "Unauthorized: Missing or invalid Authorization header", "code": "no_token" }
+    ```
+  - `403 Forbidden`:
+    ```json
+    { "success": false, "error": "Forbidden: Your account has no admin role yet", "code": "no_role" }
+    ```
+
+### `POST /api/push/broadcast`
+- **Method:** `POST`
+- **Headers:**
+  - `Authorization: Bearer <Firebase_ID_Token>` (Mandatory via `adminFetch`)
+  - `Content-Type: application/json`
+- **Access:** `admin` custom claim role
+- **Payload:**
+  ```json
+  { "title": "Current News Alert", "body": "...", "url": "/" }
+  ```
+- **Response Shape (200 OK):**
+  ```json
+  { "success": true, "sent": 42, "message": "Dispatched successfully" }
+  ```
+
+### `POST /api/mail/send-alert`
+- **Method:** `POST`
+- **Headers:**
+  - `Authorization: Bearer <Firebase_ID_Token>` (Mandatory via `adminFetch`)
+  - `Content-Type: application/json`
+- **Access:** `admin` custom claim role
+- **Rate Limit:** 5 requests / 15 minutes per IP
+- **Payload:**
+  ```json
+  { "email": "user@example.com", "title": "Test Circular: Newsroom Alert Dispatch", "link": "https://..." }
+  ```
+- **Response Shape (200 OK):**
+  ```json
+  { "success": true, "message": "Alert circular queued for delivery" }
+  ```
+
 ## 13. Admin Host Routing & Edge Auth Leeway (`server.ts` & `worker/src/index.ts`)
 
 ### Host `admin.currentnews.blog` Routing

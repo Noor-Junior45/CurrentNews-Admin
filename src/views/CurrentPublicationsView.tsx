@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuthState } from '../hooks/useAuthState';
 import { Post, slugify } from '../types';
@@ -33,6 +33,50 @@ export default function CurrentPublicationsView(): React.JSX.Element {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [warningMsg, setWarningMsg] = useState<string | null>((location.state as any)?.warning || null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Auto-dismiss timers for notifications
+  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const warningTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Auto-dismiss success notification (e.g., outbox sync, deletion) after 4.5 seconds
+  useEffect(() => {
+    if (successMsg) {
+      if (successTimerRef.current) clearTimeout(successTimerRef.current);
+      successTimerRef.current = setTimeout(() => {
+        setSuccessMsg(null);
+      }, 4500);
+    }
+    return () => {
+      if (successTimerRef.current) clearTimeout(successTimerRef.current);
+    };
+  }, [successMsg]);
+
+  // Auto-dismiss warning notification after 5 seconds
+  useEffect(() => {
+    if (warningMsg) {
+      if (warningTimerRef.current) clearTimeout(warningTimerRef.current);
+      warningTimerRef.current = setTimeout(() => {
+        setWarningMsg(null);
+      }, 5000);
+    }
+    return () => {
+      if (warningTimerRef.current) clearTimeout(warningTimerRef.current);
+    };
+  }, [warningMsg]);
+
+  // Auto-dismiss error notification after 6 seconds
+  useEffect(() => {
+    if (errorMsg) {
+      if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
+      errorTimerRef.current = setTimeout(() => {
+        setErrorMsg(null);
+      }, 6000);
+    }
+    return () => {
+      if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
+    };
+  }, [errorMsg]);
 
   useEffect(() => {
     updateDocumentSEO({
@@ -199,14 +243,14 @@ export default function CurrentPublicationsView(): React.JSX.Element {
   });
 
   return (
-    <div className="w-full bg-white dark:bg-slate-950 font-sans" id="current-publications-view">
+    <div className="w-full min-h-screen bg-[#f6dfdf] dark:bg-[#1f1717] font-sans" id="current-publications-view">
 
-        {/* Persistent Sticky Filter Bar (Anchored flush beneath AdminNavbar) */}
-        <div className="sticky top-[104px] sm:top-[112px] z-30 bg-white/95 dark:bg-slate-950/95 backdrop-blur-md border-b border-slate-200/90 dark:border-slate-800/90 shadow-2xs">
-          <div className="max-w-5xl mx-auto px-3 sm:px-6 lg:px-8 py-2.5">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+        {/* Unified Integrated Sub-Tier (Seamlessly fused with main AdminNavbar as ONE single navbar with zero dividing line) */}
+        <div className="sticky top-[99px] sm:top-[103px] z-30 bg-[#fbf1e5] dark:bg-[#251e18] -mt-[1px] border-b border-[#ebd7c1] dark:border-[#3d3228] shadow-xs">
+          <div className="max-w-5xl mx-auto px-1.5 xs:px-2 sm:px-6 lg:px-8 py-1.5 sm:py-2">
+            <div className="flex flex-row items-center justify-center gap-1 xs:gap-1.5 sm:gap-2 md:gap-2.5 w-full flex-nowrap overflow-x-auto no-scrollbar">
               <div 
-                className="grid grid-cols-3 gap-1 bg-slate-100 dark:bg-slate-800/90 p-1 rounded-xl w-full sm:w-auto sm:flex sm:items-center shadow-inner"
+                className="flex items-center justify-center gap-1 xs:gap-1.5 sm:gap-2 w-auto shrink-0"
                 id="publications-filter-tabs"
               >
                 {(['all', 'published', 'drafts'] as const).map((mode) => (
@@ -214,35 +258,54 @@ export default function CurrentPublicationsView(): React.JSX.Element {
                     key={mode}
                     type="button"
                     onClick={() => setPubListFilter(mode)}
-                    className={`px-1.5 sm:px-4 py-1.5 rounded-lg text-[10px] sm:text-xs font-bold uppercase tracking-tight sm:tracking-wider transition-all cursor-pointer text-center truncate whitespace-nowrap ${
+                    className={`inline-flex items-center justify-center gap-1 sm:gap-1.5 px-2 xs:px-2.5 sm:px-4 py-1 sm:py-2 rounded-full text-[11px] xs:text-[11.5px] sm:text-xs font-semibold tracking-normal transition-all cursor-pointer whitespace-nowrap shadow-2xs active:scale-[0.98] border ${
                       pubListFilter === mode
-                        ? 'bg-slate-950 dark:bg-indigo-600 text-white shadow-xs'
-                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                        ? mode === 'published'
+                          ? 'bg-emerald-700 text-white border-emerald-800 shadow-xs'
+                          : mode === 'drafts'
+                          ? 'bg-indigo-700 text-white border-indigo-800 shadow-xs'
+                          : 'bg-[#2b2621] text-white border-[#1b1714] shadow-xs'
+                        : mode === 'published'
+                        ? 'bg-emerald-50/90 hover:bg-emerald-100 text-emerald-800 border-emerald-200/80 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/60'
+                        : mode === 'drafts'
+                        ? 'bg-indigo-50/90 hover:bg-indigo-100 text-indigo-800 border-indigo-200/80 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800/60'
+                        : 'bg-[#f5ece3] hover:bg-[#ebdcd0] text-[#3d332a] border-[#e2d4c7] dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700'
                     }`}
                   >
-                    {mode === 'all' && `All (${posts.length})`}
-                    {mode === 'published' && `Published (${posts.filter(p => p.status === 'published').length})`}
-                    {mode === 'drafts' && `Drafts (${posts.filter(p => p.status === 'draft').length})`}
+                    <span>
+                      {mode === 'all' && 'All'}
+                      {mode === 'published' && 'Published'}
+                      {mode === 'drafts' && 'Drafts'}
+                    </span>
+                    <span className={`rounded-full px-1.5 py-0.2 sm:px-2 sm:py-0.5 text-[9.5px] xs:text-[10px] sm:text-[11px] font-mono font-bold ${
+                      pubListFilter === mode
+                        ? 'bg-white/20 text-white'
+                        : mode === 'published'
+                        ? 'bg-emerald-100/90 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200'
+                        : mode === 'drafts'
+                        ? 'bg-indigo-100/90 text-indigo-800 dark:bg-indigo-900/60 dark:text-indigo-200'
+                        : 'bg-[#ebdcd0] text-[#3d332a] dark:bg-slate-700 dark:text-slate-200'
+                    }`}>
+                      {mode === 'all' && posts.length}
+                      {mode === 'published' && posts.filter(p => p.status === 'published').length}
+                      {mode === 'drafts' && posts.filter(p => p.status === 'draft').length}
+                    </span>
                   </button>
                 ))}
               </div>
 
-              <div className="flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto">
-                <p className="hidden sm:block text-xs text-slate-500 dark:text-slate-400 font-sans">
-                  Manage, edit, or delete your publications and drafts.
-                </p>
-                {isAdmin && (
-                  <button
-                    type="button"
-                    onClick={handleRetrySync}
-                    disabled={syncing}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 transition-colors shadow-2xs cursor-pointer disabled:opacity-50"
-                    title="Process pending outbox articles to Cloudflare D1"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
-                    <span>{syncing ? 'Syncing...' : 'Retry sync'}</span>
-                  </button>
-                )}
+              {/* Retry sync button */}
+              <div className="flex items-center justify-center shrink-0">
+                <button
+                  type="button"
+                  onClick={handleRetrySync}
+                  disabled={syncing}
+                  className="inline-flex items-center justify-center gap-1 sm:gap-1.5 px-2 xs:px-2.5 sm:px-4 py-1 sm:py-2 rounded-full text-[11px] xs:text-[11.5px] sm:text-xs font-semibold border border-amber-300/90 dark:border-amber-700/80 bg-amber-50/90 hover:bg-amber-100 dark:bg-amber-950/40 dark:hover:bg-amber-950/70 text-amber-900 dark:text-amber-200 transition-all shadow-2xs cursor-pointer disabled:opacity-50 active:scale-[0.98] whitespace-nowrap"
+                  title="Process pending outbox articles to Cloudflare D1"
+                >
+                  <RefreshCw className={`w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-700 dark:text-amber-300 ${syncing ? 'animate-spin' : ''}`} />
+                  <span>{syncing ? 'Syncing...' : 'Retry sync'}</span>
+                </button>
               </div>
             </div>
           </div>
@@ -251,36 +314,63 @@ export default function CurrentPublicationsView(): React.JSX.Element {
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           {/* Notifications */}
           {warningMsg && (
-            <div className="mb-6 p-4 bg-amber-50 dark:bg-amber-950/40 border-l-4 border-amber-500 text-amber-800 dark:text-amber-200 rounded-lg flex items-center justify-between shadow-xs">
+            <div 
+              role="alert"
+              className="mb-6 p-4 bg-amber-50 dark:bg-amber-950/40 border-l-4 border-amber-500 text-amber-800 dark:text-amber-200 rounded-lg flex items-center justify-between shadow-xs transition-all duration-300 animate-in fade-in"
+            >
               <div className="flex items-center space-x-2">
                 <AlertCircle className="h-5 w-5 shrink-0" />
                 <span className="text-sm font-medium">{warningMsg}</span>
               </div>
-              <button onClick={() => setWarningMsg(null)} className="text-amber-600 hover:text-amber-800 dark:text-amber-400 cursor-pointer">
+              <button 
+                type="button"
+                onClick={() => setWarningMsg(null)} 
+                className="text-amber-600 hover:text-amber-800 dark:text-amber-400 p-1 hover:bg-amber-100 dark:hover:bg-amber-900/40 rounded transition-colors cursor-pointer"
+                title="Dismiss warning"
+                aria-label="Dismiss warning"
+              >
                 <X className="h-4 w-4" />
               </button>
             </div>
           )}
 
           {successMsg && (
-            <div className="mb-6 p-4 bg-green-50 dark:bg-green-950/40 border-l-4 border-green-500 text-green-800 dark:text-green-200 rounded-lg flex items-center justify-between shadow-xs">
+            <div 
+              role="status"
+              className="mb-6 p-4 bg-green-50 dark:bg-green-950/40 border-l-4 border-green-500 text-green-800 dark:text-green-200 rounded-lg flex items-center justify-between shadow-xs transition-all duration-300 animate-in fade-in"
+            >
               <div className="flex items-center space-x-2">
                 <CheckCircle className="h-5 w-5 shrink-0" />
                 <span className="text-sm font-medium">{successMsg}</span>
               </div>
-              <button onClick={() => setSuccessMsg(null)} className="text-green-600 hover:text-green-800 dark:text-green-400">
+              <button 
+                type="button"
+                onClick={() => setSuccessMsg(null)} 
+                className="text-green-600 hover:text-green-800 dark:text-green-400 p-1 hover:bg-green-100 dark:hover:bg-green-900/40 rounded transition-colors cursor-pointer"
+                title="Dismiss message"
+                aria-label="Dismiss message"
+              >
                 <X className="h-4 w-4" />
               </button>
             </div>
           )}
 
           {errorMsg && (
-            <div className="mb-6 p-4 bg-red-50 dark:bg-red-950/40 border-l-4 border-red-500 text-red-800 dark:text-red-200 rounded-lg flex items-center justify-between shadow-xs">
+            <div 
+              role="alert"
+              className="mb-6 p-4 bg-red-50 dark:bg-red-950/40 border-l-4 border-red-500 text-red-800 dark:text-red-200 rounded-lg flex items-center justify-between shadow-xs transition-all duration-300 animate-in fade-in"
+            >
               <div className="flex items-center space-x-2">
                 <AlertCircle className="h-5 w-5 shrink-0" />
                 <span className="text-sm font-medium">{errorMsg}</span>
               </div>
-              <button onClick={() => setErrorMsg(null)} className="text-red-600 hover:text-red-800 dark:text-red-400">
+              <button 
+                type="button"
+                onClick={() => setErrorMsg(null)} 
+                className="text-red-600 hover:text-red-800 dark:text-red-400 p-1 hover:bg-red-100 dark:hover:bg-red-900/40 rounded transition-colors cursor-pointer"
+                title="Dismiss error"
+                aria-label="Dismiss error"
+              >
                 <X className="h-4 w-4" />
               </button>
             </div>
@@ -293,7 +383,7 @@ export default function CurrentPublicationsView(): React.JSX.Element {
               <span className="text-xs text-slate-500 dark:text-slate-400 font-mono">Loading publications ledger...</span>
             </div>
           ) : filteredPosts.length === 0 ? (
-            <div className="p-12 text-center bg-slate-50/60 dark:bg-slate-900/40 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-800">
+            <div className="p-12 text-center bg-white/70 dark:bg-slate-900/60 backdrop-blur-xs rounded-2xl border-2 border-dashed border-rose-200/90 dark:border-slate-800">
               <Newspaper className="h-12 w-12 text-slate-400 mx-auto mb-3 opacity-60" />
               <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200 mb-1">
                 No publications found

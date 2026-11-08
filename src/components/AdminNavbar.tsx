@@ -13,7 +13,9 @@ import {
   FileText, 
   Trash2, 
   X, 
-  AlertTriangle
+  AlertTriangle,
+  Copy,
+  Check
 } from 'lucide-react';
 
 export default function AdminNavbar(): React.JSX.Element {
@@ -28,8 +30,28 @@ export default function AdminNavbar(): React.JSX.Element {
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [hasCopiedDelete, setHasCopiedDelete] = useState(false);
 
   const profileRef = useRef<HTMLDivElement>(null);
+
+  const handleCopyDeleteText = async (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText('DELETE');
+      }
+      setHasCopiedDelete(true);
+      setDeleteConfirmText('DELETE');
+      setTimeout(() => setHasCopiedDelete(false), 2000);
+    } catch {
+      setDeleteConfirmText('DELETE');
+      setHasCopiedDelete(true);
+      setTimeout(() => setHasCopiedDelete(false), 2000);
+    }
+  };
 
   // Close dropdown on outside click or Escape key
   useEffect(() => {
@@ -198,7 +220,11 @@ export default function AdminNavbar(): React.JSX.Element {
 
   return (
     <>
-      <header className="sticky top-0 z-40 w-full bg-white/95 dark:bg-slate-950/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 shadow-2xs select-none">
+      <header className={`sticky top-0 z-40 w-full bg-[#fbf1e5] dark:bg-[#251e18] backdrop-blur-md select-none transition-all ${
+        activeTab === 'publications' 
+          ? 'border-b-0 shadow-none' 
+          : 'border-b border-[#ebd7c1] dark:border-[#3d3228] shadow-xs'
+      }`}>
         {/* LINE 1: Logo & Name on Left | Circle Profile Button on Right */}
         <div className="w-full px-3 sm:px-6 lg:px-8 xl:px-10 h-14 sm:h-15 flex items-center justify-between gap-3">
           {/* Left: Brand Identity with Lora font */}
@@ -326,10 +352,10 @@ export default function AdminNavbar(): React.JSX.Element {
           </div>
         </div>
 
-        {/* LINE 2: Navigation Buttons (Centered in middle, no background pill box, reference image pattern) */}
-        <div className="w-full px-2.5 sm:px-6 pb-2.5 pt-0.5">
+        {/* LINE 2: Navigation Buttons (Centered in middle on laptop & tablet screens, Playfair regular font) */}
+        <div className="w-full px-2.5 sm:px-6 pb-2.5 pt-0.5 flex justify-center">
           <nav 
-            className="flex items-center justify-start xs:justify-center gap-0.5 xs:gap-1.5 sm:gap-2.5 max-w-full mx-auto select-none overflow-x-auto no-scrollbar scroll-smooth px-1 py-0.5"
+            className="flex items-center justify-start xs:justify-center md:justify-center lg:justify-center gap-0.5 xs:gap-1.5 sm:gap-2.5 md:gap-3 max-w-full select-none overflow-x-auto no-scrollbar scroll-smooth px-1 py-0.5"
             aria-label="Editorial Sections"
             id="admin-tabs-nav"
           >
@@ -340,22 +366,22 @@ export default function AdminNavbar(): React.JSX.Element {
                 <React.Fragment key={tab.id}>
                   {idx > 0 && (
                     <span 
-                      className="w-px h-3.5 sm:h-4 bg-slate-200/90 dark:bg-slate-800/90 shrink-0 select-none mx-0.5 sm:mx-1" 
+                      className="w-px h-3.5 sm:h-4 bg-[#e2cfbe] dark:bg-slate-800/90 shrink-0 select-none mx-0.5 sm:mx-1" 
                       aria-hidden="true" 
                     />
                   )}
                   <button
                     type="button"
                     onClick={() => navigate(tab.path)}
-                    className={`inline-flex items-center gap-1 sm:gap-2 px-2 xs:px-2.5 sm:px-4 py-1 sm:py-1.5 mx-0.5 sm:mx-1 rounded-full text-[11px] xs:text-xs sm:text-xs md:text-sm font-bold uppercase tracking-wider transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 border ${
+                    className={`inline-flex items-center gap-1 sm:gap-2 px-2.5 sm:px-4 py-1 sm:py-1.5 mx-0.5 sm:mx-1 rounded-full text-xs sm:text-sm font-playfair font-normal normal-case tracking-normal transition-all duration-200 cursor-pointer whitespace-nowrap shrink-0 border ${
                       isActive
-                        ? `${tab.activeStyles} liquid-tab-active font-extrabold`
-                        : 'border-transparent text-slate-700 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white hover:bg-slate-100/70 dark:hover:bg-slate-800/50'
+                        ? `${tab.activeStyles} liquid-tab-active font-normal`
+                        : 'border-transparent text-slate-800 dark:text-slate-200 hover:text-slate-950 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10'
                     }`}
                     id={`admin-nav-${tab.id}-button`}
                   >
                     <Icon className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${isActive ? '' : tab.iconColor}`} />
-                    <span>{tab.label}</span>
+                    <span className="font-playfair font-normal">{tab.label}</span>
                   </button>
                 </React.Fragment>
               );
@@ -402,7 +428,18 @@ export default function AdminNavbar(): React.JSX.Element {
 
             <div className="space-y-3 mb-6">
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 font-mono">
-                Type <span className="text-rose-600 font-black">DELETE</span> to confirm:
+                Type <span 
+                  onClick={handleCopyDeleteText}
+                  className="text-rose-600 font-black inline-flex items-center gap-1 cursor-pointer hover:opacity-80 transition-opacity select-none"
+                  title="Click to copy DELETE"
+                >
+                  DELETE
+                  {hasCopiedDelete ? (
+                    <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  ) : (
+                    <Copy className="w-3.5 h-3.5 text-rose-600 hover:text-rose-700 shrink-0" />
+                  )}
+                </span> to confirm:
               </label>
               <input
                 type="text"
@@ -413,12 +450,12 @@ export default function AdminNavbar(): React.JSX.Element {
               />
             </div>
 
-            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-150 dark:border-slate-800">
+            <div className="grid grid-cols-2 gap-3 pt-3 border-t border-slate-150 dark:border-slate-800">
               <button
                 type="button"
                 onClick={() => setActiveModal(null)}
                 disabled={isDeletingAccount}
-                className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                className="w-full py-2.5 px-3 rounded-xl text-xs font-bold bg-[#cce3de] hover:bg-[#b9d8d2] text-[#164e43] border border-[#a3cdc4] transition-colors cursor-pointer flex items-center justify-center shadow-2xs active:scale-[0.99]"
               >
                 Cancel
               </button>
@@ -426,13 +463,13 @@ export default function AdminNavbar(): React.JSX.Element {
                 type="button"
                 onClick={handleDeleteAccount}
                 disabled={deleteConfirmText.trim().toUpperCase() !== 'DELETE' || isDeletingAccount}
-                className="px-5 py-2.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white shadow-md disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer flex items-center gap-2"
+                className="w-full py-2.5 px-3 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white shadow-md disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer flex items-center justify-center gap-1.5 active:scale-[0.99]"
               >
                 {isDeletingAccount ? (
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                 ) : (
                   <>
-                    <Trash2 className="w-4 h-4" />
+                    <Trash2 className="w-4 h-4 shrink-0" />
                     <span>Delete Permanently</span>
                   </>
                 )}

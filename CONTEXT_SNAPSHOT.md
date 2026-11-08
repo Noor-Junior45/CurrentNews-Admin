@@ -175,8 +175,87 @@
   - Preserved phone (`px-3`) and tablet (`px-6`) layouts while ensuring the brand logo and title anchor cleanly to the left edge with calibrated responsive margins on desktop monitors.
   - Verified 0 TypeScript compilation errors and 0 lint warnings across `compile_applet` and `lint_applet`.
 
+- **Phase 25 (Invite-Only Access Request & Pre-Formatted Email Questionnaire):** [COMPLETED]
+  - Removed "Don't have an account? Create one" toggle line from `SignInView.tsx` footer (CSS selector 1 & 2).
+  - Streamlined UI label to simply "Email Us" (hiding raw email from the screen, while populating `admin@currentnews.blog` as recipient in the user's email client).
+  - Configured comprehensive questionnaire body: Full Name, Sign-in Email Address, Mobile/WhatsApp Number, Requested Role, Beat/Reason, Newsroom Reference, and optional Social Handles (Instagram/Facebook/X/LinkedIn).
+  - Refined closing note: "Please note: Once submitted, our editorial administration team will review and verify your application credentials. Upon successful verification, your assigned editorial role will be activated and confirmed to you."
+  - Maintained zero UI flicker, high-contrast typography, and full dark-mode compatibility.
+  - Verified 0 TypeScript compilation errors and 0 lint warnings across `compile_applet` and `lint_applet`.
+
+- **Phase 26 (Role Assignment Stage: Tuscan Sunset Palette & Login as Reader Redirect):** [COMPLETED]
+  - Removed enclosed white box/border/card styling from `div#unauthorized-slate` in `AdminAuthGuard.tsx` (CSS selector 1).
+  - Applied the "Tuscan sunset" color palette:
+    - Full-viewport background: Tuscan Sunset `#FFD3AC`.
+    - Shield Icon badge: Sage Green `#A2AE9D` with Charcoal `#54463A`.
+    - Headings and typography: Deep Earth Charcoal `#54463A`.
+    - Account Switcher CTA: Deep Earth Charcoal `#54463A` with white text.
+    - Reader Navigation CTA: Deep Rose `#C75F71` with white text (CSS selector 2).
+  - Replaced "Sign Out & Return to Sign In" with "Login as Reader" redirecting users to `https://currentnews.blog/signin`.
+  - Verified 0 TypeScript compilation errors and 0 lint warnings across `compile_applet` and `lint_applet`.
+- **Phase 27 (Audience Push Count Bearer Authorization Fix):** [COMPLETED]
+  - Identified cause of `[auth] no_token GET /api/push/subscribers-count hasHeader=false`: `AudienceRegistryView.tsx` called the protected `/api/push/subscribers-count` endpoint using bare browser `fetch()` instead of `adminFetch()`.
+  - Refactored `fetchPushCount()` to use `adminFetch<{ success?: boolean; count: number }>()`.
+  - Automatically attaches the verified Firebase ID Bearer token, synchronizes with `authStateReady()`, avoids unauthenticated network call spam on mount, and eliminates backend 401 logs.
+  - Verified 0 TypeScript compilation errors and 0 lint warnings across `compile_applet` and `lint_applet`.
+- **Phase 28 (Navbar #fbf1e5, Playfair Regular Font & Large Screen Centered Tabs):** [COMPLETED]
+  - Changed AdminNavbar top background to `#fbf1e5` with subtle border `#ebd7c1` (CSS selector 1 & 2).
+  - Updated font of `Dashboard`, `Drafts`, `Publications`, and `Audience` to Playfair Display regular (`font-playfair font-normal`) with zero bolding in active/inactive states.
+  - Centered all 4 navigation buttons in the middle of the second row on laptop (`lg:`, `xl:`) and tablet (`md:`) screens (`flex justify-center`).
+  - Switched root container overflow from `overflow-x-hidden` to `overflow-x-clip`, ensuring the navbar remains permanently fixed/sticky at the top (`top: 0`) while all page content scrolls smoothly under it.
+- **Phase 29 (Delete Account Modal Button Grid & Copy Confirmation Trigger):** [COMPLETED]
+  - Formatted the action buttons in the Delete Account modal (`AdminNavbar.tsx`) as an equal-width 2-column grid (`grid grid-cols-2 gap-3`, CSS selector 1 & 2).
+  - Styled the Cancel button with background `#cce3de`, `#164e43` high-contrast typography, and border `#a3cdc4`.
+  - Added a responsive copy icon next to the `DELETE` confirmation text (CSS selector 4) that copies "DELETE" to the clipboard and provides visual checkmark feedback without background box enclosure, matching user guidance.
+- **Phase 30 (Draft Page Canvas #f6dfdf, Spaced Category Dropdown Arrow & Refined Publish Date):** [COMPLETED]
+  - Changed Draft page background to `#f6dfdf` (`div#draft-publication-view`).
+  - Spaced dropdown arrow in Category select (`select#post-category`) a generous 20px (`1.25rem`) away from the border using custom chevron positioning with `pl-4 pr-12` and `appearance-none` (CSS selector 1 & 5).
+  - Cleaned the Publish Date button display: removed the calendar icon inside the box, eliminated the background/border box from the "Today" indicator for an unboxed presentation, and anchored the calendar icon inside the Publish Date heading label (CSS selector 2, 3, 4).
+- **Phase 31 (Unified Reference Link Section with Official YouTube & Facebook Embed Inputs):** [COMPLETED]
+  - Removed old standalone Media Embeds container (`div:nth-of-type(5)`) with separate YouTube broadcast and Facebook reel labels.
+  - Consolidated YouTube and Facebook into the Reference Link section directly above the custom hyperlinks box:
+    - Added YouTube input box with official red YouTube logo on the left at the start of the box, accepting full URLs or embed codes.
+    - Added Facebook input box with real official circular blue `#1877F2` Facebook logo on the left at the start of the box, accepting links or embed codes.
+  - Kept the empty reference links box and "Add Hyperlink" button directly below them intact.
+- **Phase 32 (Publications 4-Button Centered Filter & Flush Top Offset):** [COMPLETED]
+  - Removed "Manage, edit, or delete your publications and drafts." subtitle from the publications page header.
+  - Centered all 4 buttons (`All`, `Published`, `Drafts`, `Retry sync`) in the middle of the screen for tab (`md:`) and laptop/desktop displays (`flex-col md:flex-row items-center justify-center`).
+  - Redesigned all 4 buttons into rounded-full pills with dedicated color states, distinct monospace count badges, micro-shadows, and press physics (CSS selector 1 & 2).
+  - Adjusted sticky offset from `top-[104px] sm:top-[112px]` to `top-[99px] sm:top-[104px]`, eliminating the gap beneath the top navbar so the sub-navbar sits completely flush against it.
+  - Verified 0 TypeScript compilation errors and 0 lint warnings across `compile_applet` and `lint_applet`.
+
+- **Phase 33 (Automated Disappear Rule for Outbox Sync & Notification Alerts):** [COMPLETED]
+  - Added automated auto-dismiss timer logic to `src/views/CurrentPublicationsView.tsx` (CSS selector 1: `div#current-publications-view > div:nth-of-type(2) > div:nth-of-type(1)`).
+  - Outbox sync feedback (`Outbox sync complete: X processed...`) and deletion success notices auto-disappear after 4.5 seconds (`setTimeout` with cleanup ref).
+  - Similar notification types (warning messages auto-dismiss in 5s; error alerts auto-dismiss in 6s) adhere to consistent auto-dismiss rules across the view.
+  - Also synchronized auto-dismiss timers across `DraftPublicationView.tsx` and `AdminDashboardView.tsx` for cross-portal consistency.
+  - Maintained manual `(X)` close buttons, smooth `animate-in fade-in` transitions, and prevented timer leaks during unmounting.
+  - Verified 0 TypeScript compilation errors and 0 lint warnings across `compile_applet` and `lint_applet`.
+
+- **Phase 34 (Single-Line Publications Filter & Sync Bar on Phone Screens):** [COMPLETED]
+  - Updated `div#current-publications-view > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1)` (CSS selector 1).
+  - Switched layout container from `flex-col md:flex-row` to `flex-row items-center justify-center flex-nowrap` across mobile views.
+  - Formatted all 4 buttons (`All`, `Published`, `Drafts`, `Retry sync`) to appear side-by-side in one horizontal line on phone screens with calibrated compact padding (`px-2 xs:px-2.5 py-1`), concise badge sizing (`text-[9.5px] xs:text-[10px]`), and calibrated typography (`text-[11px] xs:text-[11.5px]`).
+  - Preserved 100% of the tablet and laptop display sizes, padding, icon dimensions, and layout unchanged (`sm:px-4 sm:py-2`, `sm:text-xs`, `sm:gap-2 md:gap-2.5`).
+  - Verified 0 TypeScript compilation errors and 0 lint warnings across `compile_applet` and `lint_applet`.
+
+- **Phase 35 (Publications Page #f6dfdf Canvas & Sub-Navbar #fbf1e5 Palette Match):** [COMPLETED]
+  - Styled `CurrentPublicationsView.tsx` page canvas to `bg-[#f6dfdf] dark:bg-[#1f1717] min-h-screen`, matching the exact warm background of the Draft page.
+  - Updated the persistent sticky filter sub-navbar background to `bg-[#fbf1e5]/95 dark:bg-[#251e18]/95` with border `border-[#ebd7c1] dark:border-[#3d3228]` (CSS selector 1), matching the main `AdminNavbar` background with seamless visual continuity.
+  - Preserved all publication card elevations, single-line mobile filter button arrangements, auto-dismiss rules, and delete modal flows.
+  - Verified 0 TypeScript compilation errors and 0 lint warnings across `compile_applet` and `lint_applet`.
+
+- **Phase 36 (Dividing Line Removal & Unified 3-Tier Navbar Fusion):** [COMPLETED]
+  - Removed the horizontal line dividing `AdminNavbar` and the publications sub-navbar:
+    - Updated `AdminNavbar.tsx` `<header>` to dynamically drop its bottom border and shadow (`border-b-0 shadow-none`) when `activeTab === 'publications'`.
+    - Styled `CurrentPublicationsView.tsx` sticky sub-tier with `-mt-[1px]`, exact `bg-[#fbf1e5] dark:bg-[#251e18]` matching, `top-[99px] sm:top-[103px]` flush lock, and bottom border `border-b border-[#ebd7c1] dark:border-[#3d3228] shadow-xs`.
+    - Visually fused Row 1 (Brand/Profile), Row 2 (Tabs), and Row 3 (Pill Filters & Retry sync) into ONE unified, continuous navigation header card with zero dividing seams.
+  - Verified 0 TypeScript compilation errors and 0 lint warnings across `compile_applet` and `lint_applet`.
+
 ## 4. Immediate Next Step
 - Run `node scripts/set-role.mjs <user-email> admin` (or `writer`) in Google Cloud Shell to grant verified editorial access to staff accounts.
+
+
 
 
 

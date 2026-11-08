@@ -11,6 +11,24 @@ import { syncUserAuthState } from '../hooks/useAuthState';
 import { signInWithGoogleSafe } from '../utils/authHelper';
 import { updateDocumentSEO } from '../utils/seo';
 
+const ADMIN_ACCESS_EMAIL = 'admin@currentnews.blog';
+const ACCESS_REQUEST_SUBJECT = encodeURIComponent('Admin / Writer Access Request — Current News Editorial Desk');
+const ACCESS_REQUEST_BODY = encodeURIComponent(
+  `CURRENT NEWS — EDITORIAL ACCESS APPLICATION\n` +
+  `--------------------------------------------------\n` +
+  `IMPORTANT: Please fill in all details accurately to facilitate role verification and approval.\n\n` +
+  `1. Full Name: — \n` +
+  `2. Sign-in Email Address (used for Google / Email authentication): — \n` +
+  `3. Mobile / WhatsApp Contact Number: — \n` +
+  `4. Requested Role (Admin / Writer): — \n` +
+  `5. Why do you need access / Newsroom Beat: — \n` +
+  `6. Professional Credentials / Newsroom Reference: — \n` +
+  `7. Social Profiles (Instagram / Facebook / X / LinkedIn — Optional): — \n` +
+  `--------------------------------------------------\n` +
+  `Please note: Once submitted, our editorial administration team will review and verify your application credentials. Upon successful verification, your assigned editorial role will be activated and confirmed to you.`
+);
+const ACCESS_REQUEST_MAILTO = `mailto:${ADMIN_ACCESS_EMAIL}?subject=${ACCESS_REQUEST_SUBJECT}&body=${ACCESS_REQUEST_BODY}`;
+
 export default function SignInView(): React.JSX.Element {
   const navigate = useNavigate();
 
@@ -391,19 +409,15 @@ export default function SignInView(): React.JSX.Element {
         {/* Footer */}
         <footer className="mt-10 sm:mt-12 text-center">
           <p className="text-xs text-black dark:text-stone-200 mb-6 font-sans font-semibold">
-            {isSignUp ? 'Already have an account? ' : "Don't have an account? "}
-            <button
-              type="button"
-              onClick={() => {
-                setIsSignUp(!isSignUp);
-                setPassword('');
-                setErrorMessage(null);
-                setSuccessMessage(null);
-              }}
-              className="font-bold text-[#B22222] dark:text-[#E04D4D] underline cursor-pointer ml-1"
+            Need editorial access?{' '}
+            <a
+              href={ACCESS_REQUEST_MAILTO}
+              className="font-bold text-[#B22222] dark:text-[#E04D4D] underline cursor-pointer hover:opacity-80 transition-opacity ml-1"
+              id="admin-access-request-link"
+              title="Request Admin or Writer Access via Email"
             >
-              {isSignUp ? 'Sign in' : 'Create one'}
-            </button>
+              Email Us
+            </a>
           </p>
 
           <p className="font-space-mono text-[0.65rem] text-black dark:text-stone-300 font-bold uppercase tracking-[0.1em]">

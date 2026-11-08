@@ -120,6 +120,20 @@ export default function DraftPublicationView(): React.JSX.Element {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [subscribersCount, setSubscribersCount] = useState<number>(0);
 
+  // Auto-dismiss success notification after 4.5 seconds
+  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (successMsg) {
+      if (successTimerRef.current) clearTimeout(successTimerRef.current);
+      successTimerRef.current = setTimeout(() => {
+        setSuccessMsg(null);
+      }, 4500);
+    }
+    return () => {
+      if (successTimerRef.current) clearTimeout(successTimerRef.current);
+    };
+  }, [successMsg]);
+
   useEffect(() => {
     updateDocumentSEO({
       title: isEditing ? 'Edit Publication — Current News Live' : 'Draft New Publication — Current News Live',
@@ -455,7 +469,7 @@ export default function DraftPublicationView(): React.JSX.Element {
   };
 
   return (
-    <div className="w-full bg-white dark:bg-slate-950 font-sans" id="draft-publication-view">
+    <div className="w-full min-h-screen bg-[#f6dfdf] dark:bg-[#1f1717] font-sans" id="draft-publication-view">
       <div className="w-full max-w-5xl lg:max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
           {/* Notifications */}
           {successMsg && (
@@ -541,7 +555,7 @@ export default function DraftPublicationView(): React.JSX.Element {
                     id="post-category"
                     value={category}
                     onChange={(e) => setCategory(e.target.value)}
-                    className="w-full px-4 py-3 border border-slate-300 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 block font-semibold text-slate-800 dark:text-slate-200 shadow-2xs box-border cursor-pointer transition-colors"
+                    className="w-full pl-4 pr-12 py-3 border border-slate-300 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 block font-semibold text-slate-800 dark:text-slate-200 shadow-2xs box-border cursor-pointer transition-colors appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2020%2020%22%20fill%3D%22%2364748b%22%3E%3Cpath%20fill-rule%3D%22evenodd%22%20d%3D%22M5.23%207.21a.75.75%200%20011.06.02L10%2011.168l3.71-3.938a.75.75%200%20111.08%201.04l-4.25%204.5a.75.75%200%2001-1.08%200l-4.25-4.5a.75.75%200%2001.02-1.06z%22%20clip-rule%3D%22evenodd%22%2F%3E%3C%2Fsvg%3E')] bg-[position:right_1.25rem_center] bg-[size:1.15rem_1.15rem] bg-no-repeat"
                   >
                     <option value="General">General News</option>
                     <option value="Jharkhand">Jharkhand & Regional News</option>
@@ -581,12 +595,11 @@ export default function DraftPublicationView(): React.JSX.Element {
                       id="choose-publish-date-display"
                       className="w-full px-4 py-3 border border-slate-300 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/60 group-focus-within:ring-2 group-focus-within:ring-indigo-500/20 group-focus-within:border-indigo-500 flex items-center justify-between font-semibold text-slate-800 dark:text-slate-200 shadow-2xs box-border transition-all pointer-events-none"
                     >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <Calendar className="w-4 h-4 text-indigo-500 shrink-0" />
-                        <span className="truncate">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="truncate text-slate-800 dark:text-slate-200">
                           {formatDisplayDate(publishDate)}
                           {!isCustomDate && (
-                            <span className="ml-2 text-[11px] font-mono font-medium px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60">
+                            <span className="ml-2 text-xs font-mono font-medium text-emerald-600 dark:text-emerald-400">
                               Today
                             </span>
                           )}
@@ -656,46 +669,69 @@ export default function DraftPublicationView(): React.JSX.Element {
                 />
               </div>
 
-              {/* Media Embeds */}
-              <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl box-border">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5 font-mono flex items-center gap-1.5">
-                    <Youtube className="w-4 h-4 text-red-500" />
-                    <span>YouTube Broadcast URL (Optional)</span>
-                  </label>
-                  <input
-                    type="url"
-                    placeholder="https://www.youtube.com/watch?v=..."
-                    value={youtubeUrl}
-                    onChange={(e) => setYoutubeUrl(e.target.value)}
-                    className="w-full px-3.5 py-2 border border-slate-300 dark:border-slate-700 rounded-lg text-xs bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5 font-mono flex items-center gap-1.5">
-                    <Facebook className="w-4 h-4 text-blue-600" />
-                    <span>Facebook Video / Reel URL (Optional)</span>
-                  </label>
-                  <input
-                    type="url"
-                    placeholder="https://www.facebook.com/.../videos/..."
-                    value={facebookUrl}
-                    onChange={(e) => setFacebookUrl(e.target.value)}
-                    className="w-full px-3.5 py-2 border border-slate-300 dark:border-slate-700 rounded-lg text-xs bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
-                  />
-                </div>
-              </div>
-
-              {/* Reference Link Section */}
-              <div className="w-full">
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2 font-mono flex items-center gap-1.5">
+              {/* Reference & Media Links Section */}
+              <div className="w-full space-y-3">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1 font-mono flex items-center gap-1.5">
                   <Link2 className="w-3.5 h-3.5 text-indigo-500" />
                   <span>Reference Link</span>
                 </label>
-                
-                {/* Empty box space / links container */}
-                <div className="w-full bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 rounded-xl p-3 sm:p-4 min-h-[64px] box-border">
+
+                {/* 1. YouTube Broadcast URL or Embed Code Box */}
+                <div className="flex items-center gap-3 px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl shadow-2xs focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:border-indigo-500 transition-all">
+                  <div className="flex items-center justify-center w-6 h-6 rounded-md bg-[#FF0000] shrink-0 text-white shadow-2xs" title="YouTube">
+                    <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
+                      <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+                    </svg>
+                  </div>
+                  <input
+                    id="post-youtube-url"
+                    type="text"
+                    placeholder="Enter YouTube URL or embed code (https://www.youtube.com/...)"
+                    value={youtubeUrl}
+                    onChange={(e) => setYoutubeUrl(e.target.value)}
+                    className="w-full text-xs font-mono bg-transparent border-0 focus:outline-none text-slate-900 dark:text-white placeholder:text-slate-400"
+                  />
+                  {youtubeUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setYoutubeUrl('')}
+                      className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 cursor-pointer shrink-0"
+                      title="Clear YouTube URL"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* 2. Facebook Video / Reel URL or Embed Code Box */}
+                <div className="flex items-center gap-3 px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl shadow-2xs focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:border-indigo-500 transition-all">
+                  <div className="flex items-center justify-center w-6 h-6 rounded-full bg-[#1877F2] shrink-0 text-white shadow-2xs" title="Facebook">
+                    <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
+                      <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                    </svg>
+                  </div>
+                  <input
+                    id="post-facebook-url"
+                    type="text"
+                    placeholder="Enter Facebook link or embed code (https://www.facebook.com/...)"
+                    value={facebookUrl}
+                    onChange={(e) => setFacebookUrl(e.target.value)}
+                    className="w-full text-xs font-mono bg-transparent border-0 focus:outline-none text-slate-900 dark:text-white placeholder:text-slate-400"
+                  />
+                  {facebookUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setFacebookUrl('')}
+                      className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 cursor-pointer shrink-0"
+                      title="Clear Facebook link"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* 3. Empty box space / links container */}
+                <div className="w-full bg-white dark:bg-slate-900/60 border border-slate-300 dark:border-slate-700 rounded-xl p-3 sm:p-4 min-h-[64px] box-border shadow-2xs">
                   {customLinks.length === 0 ? (
                     <div className="py-3 text-center text-xs text-slate-400 dark:text-slate-500 font-mono italic">
                       No reference links added yet. Click &quot;Add Hyperlink&quot; below to add links.
@@ -708,7 +744,7 @@ export default function DraftPublicationView(): React.JSX.Element {
                             {idx + 1}.
                           </span>
                           <input
-                            type="url"
+                            type="text"
                             placeholder="https://example.com/reference-source"
                             value={link}
                             onChange={(e) => {
@@ -733,8 +769,8 @@ export default function DraftPublicationView(): React.JSX.Element {
                   )}
                 </div>
 
-                {/* Full-width pill shape button matching Discard Draft height ratio and font */}
-                <div className="mt-3.5 w-full">
+                {/* 4. Full-width pill shape button matching Discard Draft height ratio and font */}
+                <div className="w-full">
                   <button
                     type="button"
                     onClick={() => setCustomLinks([...customLinks, ''])}

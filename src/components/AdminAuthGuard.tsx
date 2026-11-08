@@ -3,7 +3,7 @@ import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuthState } from '../hooks/useAuthState';
 import { auth } from '../firebase';
 import { signOut } from 'firebase/auth';
-import { ShieldAlert, LogOut } from 'lucide-react';
+import { ShieldAlert, LogOut, ExternalLink } from 'lucide-react';
 import { signInWithGoogleSafe } from '../utils/authHelper';
 
 interface AdminAuthGuardProps {
@@ -59,44 +59,50 @@ export default function AdminAuthGuard({ children }: AdminAuthGuardProps): React
     };
 
     return (
-      <div className="max-w-md mx-auto my-16 p-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl text-center shadow-xs" id="unauthorized-slate">
-        <div className="bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 inline-flex p-4 rounded-full border border-amber-200 dark:border-amber-900/50 mb-4">
-          <ShieldAlert className="h-8 w-8" />
+      <div 
+        className="w-full min-h-screen bg-[#edf6f9] flex flex-col items-center justify-center p-6 sm:p-10 text-center select-none" 
+        id="unauthorized-slate"
+      >
+        <div className="bg-[#ffe5ec] text-[#03071e] inline-flex p-4 rounded-full border border-[#fb6f92]/20 mb-4 shadow-xs">
+          <ShieldAlert className="h-8 w-8 text-[#54463A]" />
         </div>
-        <h2 className="text-xl font-display font-black text-slate-900 dark:text-white mb-2 uppercase tracking-tight">
+        <h2 className="text-2xl font-lora font-bold text-[#000814] mb-2 tracking-tight">
           Role Assignment Required
         </h2>
-        <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed font-sans mb-2">
-          Signed in as <strong className="text-slate-800 dark:text-slate-200">{user.email || user.uid}</strong>.
+        <p className="text-xs text-[#000000]/85 leading-relaxed font-sans mb-2">
+          Signed in as <strong className="text-[#006d77] font-bold">{user.email || user.uid}</strong>.
         </p>
-        <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed font-sans mb-6">
+        <p className="text-xs text-[#000000]/80 leading-relaxed font-sans mb-6 max-w-md">
           This portal strictly registers and authorizes newsroom staff. Your account does not currently have an active <code>admin</code> or <code>writer</code> role claim assigned.
         </p>
 
         {errorMessage && (
-          <div className="w-full mb-4 px-3.5 py-2.5 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 rounded-xl text-rose-600 dark:text-rose-400 text-xs text-center leading-relaxed">
+          <p role="alert" className="w-full max-w-md mb-4 px-3.5 py-2.5 bg-[#C75F71]/15 border border-[#C75F71]/40 rounded-xl text-[#54463A] text-xs text-center leading-relaxed font-medium">
             {errorMessage}
-          </div>
+          </p>
         )}
 
-        <div className="space-y-3">
+        <div className="w-full max-w-md space-y-3">
           <button
             onClick={handleGoogleRetry}
             disabled={isAuthenticating}
-            className="w-full bg-slate-900 hover:bg-black dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 py-3 px-4 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer inline-flex items-center justify-center space-x-2 disabled:opacity-60"
+            className="w-full bg-[#54463A] hover:bg-[#43372E] text-white py-3.5 px-4 rounded-xl text-xs sm:text-sm font-sans font-bold uppercase tracking-wider transition-all shadow-xs active:scale-[0.99] cursor-pointer inline-flex items-center justify-center space-x-2 disabled:opacity-60"
           >
             <span>{isAuthenticating ? 'Authenticating...' : 'Sign In With Another Account'}</span>
           </button>
 
           <button
             onClick={async () => {
-              await signOut(auth);
-              navigate('/signin', { replace: true });
+              try {
+                await signOut(auth);
+              } catch (_) {}
+              window.location.href = 'https://currentnews.blog/signin';
             }}
-            className="w-full inline-flex items-center justify-center gap-1.5 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white text-xs font-semibold py-2.5 px-4 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+            className="w-full bg-[#f00606] hover:bg-[#ff0022] text-white py-3.5 px-4 rounded-xl text-xs sm:text-sm font-sans font-bold uppercase tracking-wider transition-all shadow-xs active:scale-[0.99] cursor-pointer inline-flex items-center justify-center gap-2"
+            id="login-as-reader-btn"
           >
-            <LogOut className="w-3.5 h-3.5" />
-            <span>Sign Out & Return to Sign In</span>
+            <ExternalLink className="w-4 h-4" />
+            <span>Login as Reader</span>
           </button>
         </div>
       </div>

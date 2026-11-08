@@ -73,19 +73,27 @@ async function startServer() {
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", 'https://apis.google.com', 'https://*.firebaseapp.com'],
         styleSrc: ["'self'", "'unsafe-inline'"], // 'unsafe-inline' required by Quill editor & Tailwind
         imgSrc: ["'self'", 'https://media.currentnews.blog', 'https:', 'data:', 'blob:'],
         connectSrc: [
           "'self'",
           'https://identitytoolkit.googleapis.com',
           'https://securetoken.googleapis.com',
+          'https://*.googleapis.com',
+          'https://*.firebaseio.com',
+          'https://*.firebaseapp.com',
+          'https://accounts.google.com',
           'https://api.currentnews.blog',
           'https://*.run.app',
           'ws:',
           'wss:',
         ],
         frameSrc: [
+          "'self'",
+          'https://*.firebaseapp.com',
+          'https://*.google.com',
+          'https://accounts.google.com',
           'https://www.youtube.com',
           'https://youtube.com',
           'https://www.youtube-nocookie.com',

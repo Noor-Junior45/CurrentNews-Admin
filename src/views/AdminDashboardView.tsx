@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthState } from '../hooks/useAuthState';
 import { Post } from '../types';
@@ -29,6 +29,20 @@ export default function AdminDashboardView(): React.JSX.Element {
   const [feedLoading, setFeedLoading] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Auto-dismiss success notification after 4.5 seconds
+  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (successMsg) {
+      if (successTimerRef.current) clearTimeout(successTimerRef.current);
+      successTimerRef.current = setTimeout(() => {
+        setSuccessMsg(null);
+      }, 4500);
+    }
+    return () => {
+      if (successTimerRef.current) clearTimeout(successTimerRef.current);
+    };
+  }, [successMsg]);
 
   // Editorial Author Pen Name state
   const [globalPenName, setGlobalPenName] = useState<string>(() => {
