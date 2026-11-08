@@ -24,6 +24,7 @@ export interface Env {
   AGG: DurableObjectNamespace;
   FIREBASE_PROJECT_ID?: string;
   SYNC_SECRET?: string;
+  EXTRA_ALLOWED_ORIGINS?: string;
 }
 
 /**
@@ -245,9 +246,28 @@ const ALLOWED_ORIGINS = [
   'http://localhost:5173',
 ];
 
-function getCorsHeaders(request: Request): Record<string, string> {
+function getCorsHeaders(request: Request, env?: Env): Record<string, string> {
   const origin = request.headers.get('Origin') || '';
-  const isAllowed = ALLOWED_ORIGINS.includes(origin);
+  const allowed = [...ALLOWED_ORIGINS];
+
+  if (env?.EXTRA_ALLOWED_ORIGINS) {
+    for (const raw of env.EXTRA_ALLOWED_ORIGINS.split(',')) {
+      const entry = raw.trim();
+      if (!entry.startsWith('https://')) continue;
+      const rest = entry.slice('https://'.length);
+      if (!rest || rest.includes('/') || rest.includes('?') || rest.includes('#')) continue;
+      try {
+        const u = new URL(entry);
+        if (u.protocol === 'https:' && !allowed.includes(u.origin)) {
+          allowed.push(u.origin);
+        }
+      } catch {
+        continue;
+      }
+    }
+  }
+
+  const isAllowed = allowed.includes(origin);
 
   const headers: Record<string, string> = {
     'Vary': 'Origin',
@@ -877,7 +897,7 @@ async function handleInternalRequest(
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    const corsHeaders = getCorsHeaders(request);
+    const corsHeaders = getCorsHeaders(request, env);
 
     // Preflight OPTIONS handler
     if (request.method === 'OPTIONS') {

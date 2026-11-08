@@ -186,9 +186,15 @@ async function startServer() {
       return next();
     }
 
-    // In production, block /api/admin/* on any host other than admin.currentnews.blog, currentnews.blog, www.currentnews.blog
+    const extraAdminHosts = (process.env.EXTRA_ADMIN_HOSTS || '')
+      .split(',')
+      .map(h => h.trim().toLowerCase())
+      .filter(Boolean);
+    const isExtraAdminHost = extraAdminHosts.includes(host);
+
+    // In production, block /api/admin/* on any host other than admin.currentnews.blog, currentnews.blog, www.currentnews.blog, or EXTRA_ADMIN_HOSTS
     const isProduction = process.env.NODE_ENV === 'production';
-    const isKnownHost = host === 'admin.currentnews.blog' || host === 'currentnews.blog' || host === 'www.currentnews.blog';
+    const isKnownHost = host === 'admin.currentnews.blog' || host === 'currentnews.blog' || host === 'www.currentnews.blog' || isExtraAdminHost;
     if (isProduction && !isKnownHost) {
       if (pathName === '/api/admin' || pathName.startsWith('/api/admin/')) {
         return res.status(404).json({
@@ -198,8 +204,8 @@ async function startServer() {
       }
     }
 
-    // 1. Host: admin.currentnews.blog (Dedicated Admin Workspace)
-    if (host === 'admin.currentnews.blog') {
+    // 1. Host: admin.currentnews.blog or any extra admin host (Dedicated Admin Workspace)
+    if (host === 'admin.currentnews.blog' || isExtraAdminHost) {
       // Inject X-Robots-Tag to ensure zero indexing of the administrative portal
       res.setHeader('X-Robots-Tag', 'noindex, nofollow');
 
