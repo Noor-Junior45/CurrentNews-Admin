@@ -252,6 +252,23 @@
     - Visually fused Row 1 (Brand/Profile), Row 2 (Tabs), and Row 3 (Pill Filters & Retry sync) into ONE unified, continuous navigation header card with zero dividing seams.
   - Verified 0 TypeScript compilation errors and 0 lint warnings across `compile_applet` and `lint_applet`.
 
+- **Phase 37 (Dependency Vulnerability Patching & CI Audit Hardening):** [COMPLETED]
+  - Patched `express` to `^4.22.3` (fixing upstream `body-parser` and `proxy-addr` vulnerabilities within current major).
+  - Patched `vite` to `^6.4.5` and `react-router-dom` to `^7.18.5` while preserving `firebase` at `^12.15.0`.
+  - Removed the unused Firestore client (`db`, `getFirestore`, `initializeFirestore`, `handleFirestoreError`) from `src/firebase.ts`.
+  - Regenerated clean `package-lock.json` enabling deterministic `npm ci`.
+  - Hardened `.github/workflows/audit.yml` to `npm ci && npx tsc --noEmit && npm audit --omit=dev --audit-level=critical`.
+  - Verified `npx tsc --noEmit` and `npm run build` pass with 0 errors.
+
+- **Phase 38 (Logo Serving & Host Routing Root-Cause Fix):** [COMPLETED]
+  - Root caused logo invisibility on live custom domains (`admin.currentnews.blog` and `currentnews-hub.cloud.run`):
+    - On `admin.currentnews.blog`, `isAllowedAdminPath` middleware lacked root-level static asset patterns, intercepting requests for `/CurrentNews.png` and issuing HTTP 302 redirects to `/admin` (delivering HTML instead of PNG data).
+    - On Linux / Cloud Run, filename case-sensitivity caused requests for `/currentnews.png` or other case variations to fail with 404 falling back to `index.html`.
+  - Added dedicated top-level Express endpoint in `server.ts` explicitly serving `/CurrentNews.png`, `/currentnews.png`, `/logo.png`, `/favicon.png`, and PWA icons with `Content-Type: image/png`, `Cross-Origin-Resource-Policy: cross-origin`, `Access-Control-Allow-Origin: *`, and `Cache-Control: public, max-age=86400`.
+  - Created case-insensitive aliases in `public/` and `dist/` (`currentnews.png`, `logo.png`, `favicon.png`).
+  - Whitelisted all static assets (`isStaticAsset`) in `server.ts` host routing middleware to prevent any asset from being 302 redirected.
+  - Verified with `curl -I -H "Host: admin.currentnews.blog"` returning HTTP 200 OK with `image/png`.
+
 ## 4. Immediate Next Step
 - Run `node scripts/set-role.mjs <user-email> admin` (or `writer`) in Google Cloud Shell to grant verified editorial access to staff accounts.
 

@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import multer from 'multer';
@@ -182,6 +183,30 @@ async function startServer() {
     });
   });
 
+  // Dedicated route to serve brand logo reliably across all hosts, subdomains, and case variations
+  app.get([
+    '/CurrentNews.png', 
+    '/currentnews.png', 
+    '/current-news.png', 
+    '/logo.png', 
+    '/favicon.png',
+    '/pwa-192x192.png',
+    '/pwa-512x512.png'
+  ], (req, res) => {
+    const fileName = req.path.replace(/^\//, '');
+    let filePath = path.join(process.cwd(), 'dist', fileName);
+    if (!fs.existsSync(filePath)) {
+      filePath = path.join(process.cwd(), 'public', fileName);
+    }
+    if (!fs.existsSync(filePath)) {
+      filePath = path.join(process.cwd(), 'public', 'CurrentNews.png');
+    }
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+    res.type('image/png').sendFile(filePath);
+  });
+
   // Multi-Host Routing & Admin Segregation (admin.currentnews.blog vs reader apex/www)
   app.use((req, res, next) => {
     const rawHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || '';
@@ -217,10 +242,13 @@ async function startServer() {
       // Inject X-Robots-Tag to ensure zero indexing of the administrative portal
       res.setHeader('X-Robots-Tag', 'noindex, nofollow');
 
-      // Do not cache any admin page or admin API response
-      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-      res.setHeader('Pragma', 'no-cache');
-      res.setHeader('Expires', '0');
+      // Do not cache admin HTML page or admin API responses, but preserve caching for static assets
+      const isStaticAsset = /\.(png|jpe?g|webp|gif|svg|ico|css|js|map|woff2?|ttf|eot)$/i.test(pathName) || pathName.startsWith('/assets/');
+      if (!isStaticAsset) {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+      }
 
       // Allow GET /healthz and /readyz on the admin host
       if (pathName === '/healthz' || pathName === '/readyz') {
@@ -235,8 +263,9 @@ async function startServer() {
         return res.status(404).json({ error: 'Not found' });
       }
 
-      // Allow admin paths and static assets
+      // Allow admin paths and static assets (never redirect assets or images to /admin)
       const isAllowedAdminPath = 
+        pathName === '/' ||
         pathName === '/admin' ||
         pathName.startsWith('/admin/') ||
         pathName === '/signin' ||
@@ -252,7 +281,15 @@ async function startServer() {
         pathName.startsWith('/uploads') ||
         pathName.startsWith('/.well-known') ||
         pathName === '/favicon.ico' ||
-        pathName === '/robots.txt';
+        pathName === '/favicon.png' ||
+        pathName === '/robots.txt' ||
+        pathName === '/sitemap.xml' ||
+        pathName === '/ads.txt' ||
+        pathName === '/app-ads.txt' ||
+        pathName.toLowerCase() === '/currentnews.png' ||
+        pathName.toLowerCase() === '/logo.png' ||
+        pathName.startsWith('/pwa-') ||
+        isStaticAsset;
 
       if (!isAllowedAdminPath) {
         return res.redirect(302, '/admin');

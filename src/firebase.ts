@@ -1,6 +1,5 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import { getAuth, Auth } from 'firebase/auth';
-import { initializeFirestore, getFirestore, Firestore } from 'firebase/firestore';
 
 import appletConfig from '../firebase-applet-config.json';
 
@@ -25,35 +24,8 @@ export const firebaseConfig = {
   measurementId: getEnv('VITE_FIREBASE_MEASUREMENT_ID', appletConfig.measurementId || ''),
 };
 
-export const FIRESTORE_DATABASE_ID = getEnv('FIRESTORE_DATABASE_ID', appletConfig.firestoreDatabaseId || '');
-
 // Initialize singleton Firebase App
 export const app: FirebaseApp = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
 // Initialize Firebase Authentication
 export const auth: Auth = getAuth(app);
-
-// Initialize Cloud Firestore with proxy/iframe long-polling auto-detection
-export const db: Firestore = (() => {
-  try {
-    return initializeFirestore(app, {
-      experimentalAutoDetectLongPolling: true,
-    }, FIRESTORE_DATABASE_ID);
-  } catch (_) {
-    return getFirestore(app, FIRESTORE_DATABASE_ID);
-  }
-})();
-
-/**
- * Graceful Firestore error handler preventing unhandled quota or permission crash
- */
-export function handleFirestoreError(err: unknown): void {
-  if (err && typeof err === 'object' && 'code' in err) {
-    const code = (err as any).code;
-    if (code === 'resource-exhausted') {
-      console.warn('[Firestore] Quota exceeded, switching to memory cache fallback.');
-      return;
-    }
-  }
-  console.warn('[Firestore] Handled non-fatal operation error:', err);
-}
