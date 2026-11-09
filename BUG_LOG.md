@@ -260,5 +260,31 @@
   - **Root Cause:** The `Dockerfile` used `node:22-alpine` for the builder image. Alpine uses `musl` libc, which requires `@rollup/rollup-linux-x64-musl`. Due to npm bug #4828, running `npm ci` on Alpine omitted optional native bindings generated on glibc host systems, causing Rollup and Vite to fail during container builds.
   - **Permanent Guardrail:** Switched `Dockerfile` base image from `node:22-alpine` to `node:22-slim` (standard Debian glibc), which natively matches Google Cloud Run's execution environment. Additionally added `@rollup/rollup-linux-x64-musl` to `optionalDependencies` in `package.json` and synchronized `package-lock.json` so builds succeed across all container environments (Alpine, Debian, and Ubuntu).
 
+- [x] **Bug ID & Summary:** BUG-057 — Neon Push Subscriptions `permission denied for table push_subscriptions` on `ON CONFLICT DO UPDATE` and Missing Audience Device / User List.
+  - **Root Cause:**
+    1. Neon database user `cn_app` has `INSERT`, `SELECT`, and `DELETE` on `push_subscriptions`, but lacks `UPDATE` permissions. Calling `INSERT ... ON CONFLICT DO UPDATE` triggered PostgreSQL permission denial errors.
+    2. Audience page had no UI section or backend endpoint to fetch the list of registered push device tokens from Neon.
+    3. User logins were not being recorded into the Neon `staff` table, leaving "All User Email List" empty.
+  - **Permanent Guardrail:**
+    1. Rewrote `dbUpsertSubscription` in `src/server/pushNotifications.ts` to `DELETE` then `INSERT`, which only requires `INSERT` and `DELETE` privileges and never fails on Neon.
+    2. Built `GET /api/admin/push/devices` and `DELETE /api/admin/push/devices/:id` and rendered the registered device list with device type parsing (Android, Apple, Windows, Globe), copy-to-clipboard, and removal actions in `AudienceRegistryView.tsx`.
+    3. Added automatic user upserting to `staff` on login in `SignInView.tsx` and `handleAdminGetMe`, and built `GET /api/admin/users` and `DELETE /api/admin/users/:email`.
+    4. Bundled `CurrentNews.png` directly into Vite's pipeline with `src/utils/brandLogo.ts` multi-tier error fallback so the logo never breaks in any browser.
+
+- [x] **Bug ID & Summary:** BUG-058 — "Failed to ping devices via cloud messaging" on Audience Page & Broken Logo in Custom Domains.
+  - **Root Cause:**
+    1. On `admin.currentnews.blog`, `server.ts` multi-host routing middleware blocked any API route starting with `/api/` that was not strictly `/api/admin/*`, returning HTTP 404 for `/api/push/broadcast`.
+    2. In `src/server/pushNotifications.ts`, `handleBroadcast` aborted with HTTP 503 if VAPID keys were unset in the container environment, and only supported WebPush without native FCM dispatch for Android device tokens.
+    3. `server.ts` restricted `/api/push/broadcast` to `requireRole('admin')`, blocking editorial staff members who have the `writer` role.
+    4. In `src/views/AudienceRegistryView.tsx`, `handlePingAllDevices` ignored server-returned error payloads (`data?.error`), falling back to the generic message, and lacked an auto-dismiss timer.
+    5. In `src/utils/brandLogo.ts`, `CURRENT_NEWS_LOGO_SVG` used the invalid MIME parameter `data:image/svg+xml;utf8,...`, causing modern browsers to reject the SVG data URI and display a broken image placeholder. In addition, Express SPA fallback served `index.html` for missing static images.
+  - **Permanent Guardrail:**
+    1. Updated `server.ts` host gating to permit `/api/push/*`, `/api/mail/*`, and `/api/upload` on the admin host, and aliased `/api/admin/push/broadcast`.
+    2. Implemented dual-protocol dispatch in `src/server/pushNotifications.ts`: native Android FCM tokens dispatch via Firebase Cloud Messaging (`getMessaging(adminApp).send()`), while WebPush tokens dispatch via `webpush.sendNotification()`. Dead tokens (404/410/not-registered) are automatically pruned from Neon.
+    3. In `pushNotifications.ts`, added automatic dynamic VAPID key generation fallback so notifications are never disabled when env vars are unset.
+    4. Updated route authorization to `requireRole('admin', 'writer')` so both administrators and writers can broadcast alerts.
+    5. In `AudienceRegistryView.tsx`, extract `data?.error || pingErr` and add an auto-dismiss timer (5s) to `pingFeedback`.
+    6. Converted `CURRENT_NEWS_LOGO_SVG` to a valid `data:image/svg+xml;base64` URI and guarded Express static routes to never serve `index.html` for image files.
+
 
 

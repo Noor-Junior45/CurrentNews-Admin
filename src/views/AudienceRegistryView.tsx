@@ -14,7 +14,12 @@ import {
   Send, 
   RefreshCw,
   Users,
-  Trash2
+  Trash2,
+  Smartphone,
+  Laptop,
+  Globe,
+  Copy,
+  Check
 } from 'lucide-react';
 
 export default function AudienceRegistryView(): React.JSX.Element {
@@ -23,6 +28,16 @@ export default function AudienceRegistryView(): React.JSX.Element {
 
   const [pushDeviceCount, setPushDeviceCount] = useState<number | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Push devices list state
+  const [pushDevices, setPushDevices] = useState<Array<{
+    id: string;
+    endpoint: string;
+    userAgent: string;
+    createdAt?: string;
+  }>>([]);
+  const [loadingDevices, setLoadingDevices] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Ping All Devices console state
   const [pingMessage, setPingMessage] = useState('');
@@ -40,17 +55,28 @@ export default function AudienceRegistryView(): React.JSX.Element {
     message: string;
   }>({ status: 'idle', message: '' });
   const testEmailTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     return () => {
       if (testEmailTimerRef.current) {
         clearTimeout(testEmailTimerRef.current);
       }
+      if (pingTimerRef.current) {
+        clearTimeout(pingTimerRef.current);
+      }
     };
   }, []);
 
   // All User Email List state
-  const [userEmails, setUserEmails] = useState<{ id: string; email: string; createdAt?: any }[]>([]);
+  const [userEmails, setUserEmails] = useState<{
+    id: string;
+    email: string;
+    role?: string;
+    displayName?: string;
+    createdAt?: any;
+    lastLoginAt?: any;
+  }[]>([]);
   const [loadingEmails, setLoadingEmails] = useState(false);
 
   useEffect(() => {
@@ -62,6 +88,29 @@ export default function AudienceRegistryView(): React.JSX.Element {
     });
     window.scrollTo({ top: 0, behavior: 'instant' });
   }, []);
+
+  const fetchPushDevices = async () => {
+    setLoadingDevices(true);
+    try {
+      const res = await adminFetch<{
+        success?: boolean;
+        count: number;
+        devices: Array<{ id: string; endpoint: string; userAgent: string; createdAt: string }>;
+      }>('/api/admin/push/devices');
+
+      if (res.ok && res.data?.devices) {
+        setPushDevices(res.data.devices);
+        setPushDeviceCount(res.data.count ?? res.data.devices.length);
+      } else {
+        fetchPushCount();
+      }
+    } catch (e) {
+      console.debug('Failed to fetch devices:', e);
+      fetchPushCount();
+    } finally {
+      setLoadingDevices(false);
+    }
+  };
 
   const fetchPushCount = async () => {
     try {
@@ -77,17 +126,57 @@ export default function AudienceRegistryView(): React.JSX.Element {
     }
   };
 
+  const handleDeleteDevice = async (idOrEndpoint: string) => {
+    if (!window.confirm('Are you sure you want to remove this push notification device from Neon?')) return;
+    try {
+      const res = await adminFetch(`/api/admin/push/devices/${encodeURIComponent(idOrEndpoint)}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        setPushDevices(prev => prev.filter(d => d.id !== idOrEndpoint && d.endpoint !== idOrEndpoint));
+        setPushDeviceCount(prev => Math.max(0, (prev || 1) - 1));
+      } else {
+        setErrorMsg(res.error || 'Failed to remove device');
+      }
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Error removing device');
+    }
+  };
+
+  const handleCopyEndpoint = (id: string, text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
   const loadUserEmails = async () => {
     if (!user) return;
     setLoadingEmails(true);
     try {
-      const rows = await api.getSubscribersAdmin();
-      const list = rows.map(r => ({
-        id: r.email,
-        email: r.email,
-        createdAt: r.created_at
-      }));
-      setUserEmails(list);
+      const res = await adminFetch<{
+        success?: boolean;
+        count: number;
+        users: Array<{
+          id: string;
+          email: string;
+          role?: string;
+          displayName?: string;
+          createdAt?: any;
+          lastLoginAt?: any;
+        }>;
+      }>('/api/admin/users');
+
+      if (res.ok && res.data?.users && res.data.users.length > 0) {
+        setUserEmails(res.data.users);
+      } else {
+        const rows = await api.getSubscribersAdmin();
+        const list = rows.map(r => ({
+          id: r.email,
+          email: r.email,
+          createdAt: r.created_at
+        }));
+        setUserEmails(list);
+      }
     } catch (err: any) {
       console.debug('User emails fetch notice:', err);
       if (err?.message) {
@@ -100,7 +189,7 @@ export default function AudienceRegistryView(): React.JSX.Element {
 
   useEffect(() => {
     if (user && isAdmin) {
-      fetchPushCount();
+      fetchPushDevices();
       loadUserEmails();
     }
   }, [user, isAdmin]);
@@ -108,8 +197,15 @@ export default function AudienceRegistryView(): React.JSX.Element {
   const handleDeleteUserEmail = async (emailToDelete: string) => {
     if (!window.confirm(`Are you sure you want to remove ${emailToDelete}?`)) return;
     try {
-      await api.deleteSubscriberAdmin(emailToDelete);
-      setUserEmails(prev => prev.filter(item => item.email !== emailToDelete));
+      const res = await adminFetch(`/api/admin/users/${encodeURIComponent(emailToDelete)}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        setUserEmails(prev => prev.filter(item => item.email.toLowerCase() !== emailToDelete.toLowerCase()));
+      } else {
+        await api.deleteSubscriberAdmin(emailToDelete);
+        setUserEmails(prev => prev.filter(item => item.email.toLowerCase() !== emailToDelete.toLowerCase()));
+      }
     } catch (err: any) {
       console.error('Failed to delete email:', err);
       if (err?.message) {
@@ -172,11 +268,16 @@ export default function AudienceRegistryView(): React.JSX.Element {
 
   const handlePingAllDevices = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (pingTimerRef.current) {
+      clearTimeout(pingTimerRef.current);
+      pingTimerRef.current = null;
+    }
+
     setIsPingingDevices(true);
     setPingFeedback({ status: 'idle', message: '' });
 
     try {
-      const { ok, data, error: pingErr } = await adminFetch('/api/push/broadcast', {
+      const { ok, data, error: pingErr } = await adminFetch('/api/admin/push/broadcast', {
         method: 'POST',
         body: JSON.stringify({
           title: 'Current News Alert',
@@ -188,7 +289,7 @@ export default function AudienceRegistryView(): React.JSX.Element {
       if (ok && data?.success) {
         const sentCount = data.sent || 0;
         const msg = sentCount > 0
-          ? `Dispatched successfully to ${sentCount} active device(s) via Firebase Cloud Messaging.`
+          ? `Dispatched successfully to ${sentCount} active device(s) via Cloud Messaging.`
           : (data.message || 'Ping broadcast processed. (No active device subscriptions found).');
         setPingFeedback({
           status: 'success',
@@ -196,21 +297,30 @@ export default function AudienceRegistryView(): React.JSX.Element {
         });
         setPingMessage('');
         fetchPushCount();
+        pingTimerRef.current = setTimeout(() => {
+          setPingFeedback({ status: 'idle', message: '' });
+        }, 5000);
       } else {
-        const errorText = pingErr || 'Failed to ping devices via cloud messaging.';
+        const errorText = data?.error || pingErr || data?.message || 'Failed to ping devices via cloud messaging.';
         setPingFeedback({
           status: 'error',
           message: errorText
         });
         setErrorMsg(errorText);
+        pingTimerRef.current = setTimeout(() => {
+          setPingFeedback({ status: 'idle', message: '' });
+        }, 5000);
       }
     } catch (err: any) {
-      const errorText = err.message || 'Network error encountered during cloud messaging dispatch.';
+      const errorText = err?.message || 'Network error encountered during cloud messaging dispatch.';
       setPingFeedback({
         status: 'error',
         message: errorText
       });
       setErrorMsg(errorText);
+      pingTimerRef.current = setTimeout(() => {
+        setPingFeedback({ status: 'idle', message: '' });
+      }, 5000);
     } finally {
       setIsPingingDevices(false);
     }
@@ -236,7 +346,7 @@ export default function AudienceRegistryView(): React.JSX.Element {
             </div>
           )}
 
-          {/* 1. Push Notifications Section (Redesigned with alert logo, number & refresh button next to heading) */}
+          {/* 1. Push Notifications Section */}
           <div className="p-5 bg-amber-50/60 dark:bg-amber-950/25 border border-amber-200/80 dark:border-amber-900/40 rounded-2xl space-y-4">
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <div className="flex items-center gap-2.5">
@@ -245,7 +355,7 @@ export default function AudienceRegistryView(): React.JSX.Element {
                   Push Notifications
                 </h3>
 
-                {/* Badge showing ONLY alert logo, number, and refresh button next to heading */}
+                {/* Badge showing alert logo, device count, and refresh button */}
                 <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 px-2.5 py-1 rounded-xl shadow-xs">
                   <Bell className="w-3.5 h-3.5 text-amber-500 shrink-0" />
                   <span className="text-xs font-bold text-slate-800 dark:text-slate-100 font-mono">
@@ -253,11 +363,11 @@ export default function AudienceRegistryView(): React.JSX.Element {
                   </span>
                   <button
                     type="button"
-                    onClick={fetchPushCount}
+                    onClick={fetchPushDevices}
                     className="p-0.5 rounded-md text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 transition-colors cursor-pointer"
-                    title="Refresh device count"
+                    title="Refresh devices and count"
                   >
-                    <RefreshCw className="w-3 h-3" />
+                    <RefreshCw className={`w-3 h-3 ${loadingDevices ? 'animate-spin' : ''}`} />
                   </button>
                 </div>
               </div>
@@ -307,6 +417,99 @@ export default function AudienceRegistryView(): React.JSX.Element {
                 <span>{pingFeedback.message}</span>
               </div>
             )}
+
+            {/* Registered Push Devices List from Neon database */}
+            <div className="pt-2 border-t border-amber-200/60 dark:border-amber-900/40 space-y-2.5">
+              <div className="flex items-center justify-between text-xs font-semibold text-amber-950 dark:text-amber-200">
+                <span className="flex items-center gap-1.5">
+                  <Smartphone className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                  Registered Devices ({pushDevices.length})
+                </span>
+                <button
+                  type="button"
+                  onClick={fetchPushDevices}
+                  className="text-[11px] text-amber-700 dark:text-amber-400 hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  <RefreshCw className={`w-2.5 h-2.5 ${loadingDevices ? 'animate-spin' : ''}`} />
+                  <span>Reload devices</span>
+                </button>
+              </div>
+
+              {loadingDevices ? (
+                <div className="py-4 text-center text-xs text-amber-800/70 dark:text-amber-300/70 font-mono">
+                  Loading registered devices from database...
+                </div>
+              ) : pushDevices.length === 0 ? (
+                <div className="py-3 px-3.5 bg-white/70 dark:bg-slate-900/60 rounded-xl text-center text-xs text-amber-900/70 dark:text-amber-200/70 border border-amber-200/50 dark:border-amber-900/30">
+                  No devices registered in database yet. Device tokens appear here when readers or app users subscribe to notifications.
+                </div>
+              ) : (
+                <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
+                  {pushDevices.map((device) => {
+                    const isAndroid = /android/i.test(device.userAgent);
+                    const isApple = /iphone|ipad|macintosh/i.test(device.userAgent);
+                    const isWindows = /windows/i.test(device.userAgent);
+
+                    return (
+                      <div
+                        key={device.id || device.endpoint}
+                        className="p-3 bg-white dark:bg-slate-900 border border-amber-200/80 dark:border-amber-900/50 rounded-xl flex items-center justify-between gap-3 text-xs shadow-xs"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                          <div className="w-7 h-7 rounded-lg bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 flex items-center justify-center shrink-0">
+                            {isAndroid ? (
+                              <Smartphone className="w-4 h-4" />
+                            ) : isApple ? (
+                              <Smartphone className="w-4 h-4" />
+                            ) : isWindows ? (
+                              <Laptop className="w-4 h-4" />
+                            ) : (
+                              <Globe className="w-4 h-4" />
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="font-semibold text-slate-900 dark:text-slate-100 truncate">
+                              {device.userAgent.length > 50 ? device.userAgent.slice(0, 50) + '...' : device.userAgent}
+                            </p>
+                            <div className="flex items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                              <span className="font-mono truncate max-w-[200px]" title={device.endpoint}>
+                                {device.endpoint.length > 35 ? `${device.endpoint.slice(0, 20)}...${device.endpoint.slice(-10)}` : device.endpoint}
+                              </span>
+                              {device.createdAt && (
+                                <span>• {safeFormatDate(device.createdAt)}</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleCopyEndpoint(device.id, device.endpoint)}
+                            className="p-1.5 text-slate-400 hover:text-amber-600 dark:hover:text-amber-300 rounded-md transition-colors cursor-pointer"
+                            title="Copy device token"
+                          >
+                            {copiedId === device.id ? (
+                              <Check className="w-3.5 h-3.5 text-emerald-500" />
+                            ) : (
+                              <Copy className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteDevice(device.id || device.endpoint)}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 rounded-md transition-colors cursor-pointer"
+                            title="Remove device from database"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* 2. Email Test Section */}
@@ -377,32 +580,48 @@ export default function AudienceRegistryView(): React.JSX.Element {
                 onClick={loadUserEmails}
                 className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 font-medium cursor-pointer"
               >
-                <RefreshCw className="w-3 h-3" />
+                <RefreshCw className={`w-3 h-3 ${loadingEmails ? 'animate-spin' : ''}`} />
                 <span>Refresh</span>
               </button>
             </div>
 
             {loadingEmails ? (
               <div className="p-12 text-center text-xs text-slate-500 dark:text-slate-400 font-mono">
-                Loading user emails...
+                Loading user emails from database...
               </div>
             ) : userEmails.length === 0 ? (
               <div className="p-12 text-center text-xs text-slate-500 dark:text-slate-400">
-                No user emails registered yet.
+                No user emails registered yet. Users will appear here automatically when they log in to the site.
               </div>
             ) : (
               <div className="divide-y divide-slate-100 dark:divide-slate-800">
                 {userEmails.map((item) => (
                   <div key={item.id || item.email} className="p-4 sm:px-5 flex items-center justify-between gap-3 hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition-colors">
                     <div className="min-w-0 flex-1">
-                      <p className="text-xs sm:text-sm font-semibold text-slate-900 dark:text-white truncate">
-                        {item.email}
-                      </p>
-                      {item.createdAt && (
-                        <p className="text-[11px] text-slate-400 font-mono mt-0.5">
-                          Registered: {safeFormatDate(item.createdAt)}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-xs sm:text-sm font-semibold text-slate-900 dark:text-white truncate">
+                          {item.email}
                         </p>
-                      )}
+                        {item.role && (
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-medium uppercase tracking-wider ${
+                            item.role === 'admin' 
+                              ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-900' 
+                              : item.role === 'writer'
+                              ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-900'
+                              : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                          }`}>
+                            {item.role}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3 text-[11px] text-slate-400 font-mono mt-0.5 flex-wrap">
+                        {item.lastLoginAt && (
+                          <span>Last Login: {safeFormatDate(item.lastLoginAt)}</span>
+                        )}
+                        {item.createdAt && (
+                          <span>• Registered: {safeFormatDate(item.createdAt)}</span>
+                        )}
+                      </div>
                     </div>
                     <button
                       type="button"

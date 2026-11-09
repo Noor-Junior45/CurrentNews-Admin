@@ -21,13 +21,16 @@ import {
   handleSubscribe,
   handleUnsubscribe,
   handleBroadcast,
-  handleGetSubscribersCount
+  handleGetSubscribersCount,
+  handleGetDevices,
+  handleDeleteDevice
 } from './src/server/pushNotifications.ts';
 import { handleGetPosts, handleGetPostById, handleGetWriters } from './src/server/postsApi.ts';
 import { ensureR2ArticlesWarmup, getFeedFromR2, getDeletedArticleIds } from './src/server/r2Articles.ts';
 import { handleGetAppVersion, handleUpdateAppVersion } from './src/server/appVersionApi.ts';
 import { requireRole } from './server/auth/requireRole.ts';
 import { logFirebaseAdminProjectId } from './server/auth/firebaseAdmin.ts';
+import { ensureDatabaseSchema } from './server/db/neon.ts';
 import {
   handleAdminCreateOrUpdateArticle,
   handleAdminGetArticles,
@@ -35,7 +38,10 @@ import {
   handleAdminDeleteArticle,
   handleAdminGetMe,
   handleAdminRunSync,
-  handleAdminSyncTick
+  handleAdminSyncTick,
+  handleAdminGetUsers,
+  handleAdminDeleteUser,
+  handleAdminSyncUser
 } from './server/api/adminArticles.ts';
 
 // Load environment variables
@@ -255,9 +261,15 @@ async function startServer() {
         return next();
       }
 
-      // Any path that starts with /api/ and is not /api/admin/* must return a JSON 404 { error: "Not found" }, never a redirect to /admin and never HTML
+      // Admin host API gating: permit administrative actions, push broadcasts, alert dispatches, and uploads
       if (pathName.startsWith('/api/')) {
-        if (pathName === '/api/admin' || pathName.startsWith('/api/admin/')) {
+        const isAllowedAdminApi = 
+          pathName === '/api/admin' || 
+          pathName.startsWith('/api/admin/') ||
+          pathName.startsWith('/api/push/') ||
+          pathName.startsWith('/api/mail/') ||
+          pathName === '/api/upload';
+        if (isAllowedAdminApi) {
           return next();
         }
         return res.status(404).json({ error: 'Not found' });
@@ -428,11 +440,19 @@ async function startServer() {
   });
 
   // Automated Push Notification API routes (100% background alerts to Android devices & browsers)
-  app.get('/api/push/public-key', handleGetVapidPublicKey);
-  app.post('/api/push/subscribe', pushSubscribeLimiter, handleSubscribe);
-  app.post('/api/push/unsubscribe', pushSubscribeLimiter, handleUnsubscribe);
-  app.post('/api/push/broadcast', requireRole('admin'), handleBroadcast);
-  app.get('/api/push/subscribers-count', requireRole('admin', 'writer'), handleGetSubscribersCount);
+  app.get(['/api/push/public-key', '/api/admin/push/public-key'], handleGetVapidPublicKey);
+  app.post(['/api/push/subscribe', '/api/admin/push/subscribe'], pushSubscribeLimiter, handleSubscribe);
+  app.post(['/api/push/unsubscribe', '/api/admin/push/unsubscribe'], pushSubscribeLimiter, handleUnsubscribe);
+  app.post(['/api/push/broadcast', '/api/admin/push/broadcast'], requireRole('admin', 'writer'), handleBroadcast);
+  app.get(['/api/push/subscribers-count', '/api/admin/push/subscribers-count'], requireRole('admin', 'writer'), handleGetSubscribersCount);
+  app.get('/api/admin/push/devices', requireRole('admin', 'writer'), asyncHandler(handleGetDevices));
+  app.delete('/api/admin/push/devices/:id', requireRole('admin', 'writer'), asyncHandler(handleDeleteDevice));
+  app.post('/api/admin/push/delete-device', requireRole('admin', 'writer'), asyncHandler(handleDeleteDevice));
+
+  // User Management & Audience Registry Endpoints (Neon PostgreSQL source of truth)
+  app.get('/api/admin/users', requireRole('admin', 'writer'), asyncHandler(handleAdminGetUsers));
+  app.delete('/api/admin/users/:email', requireRole('admin'), asyncHandler(handleAdminDeleteUser));
+  app.post('/api/admin/users/sync', requireRole('admin', 'writer'), asyncHandler(handleAdminSyncUser));
 
   // Fallback 404 handler for any unmatched /api/* route so it NEVER returns HTML to API clients
   app.all('/api/*', (_req, res) => {
@@ -459,6 +479,28 @@ async function startServer() {
   // Serve uploaded media files directly from local storage
   app.use('/uploads', express.static(path.join(process.cwd(), 'public', 'uploads')));
 
+  // Fallback image asset handler preventing SPA index.html from ever masking a missing image
+  app.get(['/assets/*.(png|jpg|jpeg|svg|webp|ico|gif)', '/*.(png|jpg|jpeg|svg|webp|ico|gif)'], (req, res, next) => {
+    const rawPath = req.path;
+    const cleanPath = rawPath.replace(/^\//, '');
+    const inDist = path.join(process.cwd(), 'dist', cleanPath);
+    if (fs.existsSync(inDist)) {
+      return res.sendFile(inDist);
+    }
+    const inPublic = path.join(process.cwd(), 'public', cleanPath);
+    if (fs.existsSync(inPublic)) {
+      return res.sendFile(inPublic);
+    }
+    if (cleanPath.toLowerCase().includes('logo') || cleanPath.toLowerCase().includes('currentnews')) {
+      const logoPath = path.join(process.cwd(), 'public', 'CurrentNews.png');
+      if (fs.existsSync(logoPath)) {
+        res.type('image/png');
+        return res.sendFile(logoPath);
+      }
+    }
+    return res.status(404).send('Not found');
+  });
+
   // Connect Vite configuration dynamically to support dev vs prod modes
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
@@ -478,6 +520,8 @@ async function startServer() {
     console.log(`Server successfully started. Running on http://localhost:${PORT}`);
     // Log active firebase-admin projectId and warn if it differs from env
     logFirebaseAdminProjectId();
+    // Non-blocking schema verification for Neon PostgreSQL (push_subscriptions, users, subscribers)
+    ensureDatabaseSchema().catch(err => console.debug('[Neon Schema Warmup]:', err));
     // Non-blocking warmup check to guarantee Cloudflare R2 articles feed is primed
     ensureR2ArticlesWarmup().catch(err => console.debug('[R2 Warmup Background]:', err));
   });

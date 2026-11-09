@@ -10,6 +10,8 @@ import { auth } from '../firebase';
 import { syncUserAuthState } from '../hooks/useAuthState';
 import { signInWithGoogleSafe } from '../utils/authHelper';
 import { updateDocumentSEO } from '../utils/seo';
+import { adminFetch } from '../utils/adminFetch';
+import { CURRENT_NEWS_LOGO, handleLogoError } from '../utils/brandLogo';
 
 const ADMIN_ACCESS_EMAIL = 'admin@currentnews.blog';
 const ACCESS_REQUEST_SUBJECT = encodeURIComponent('Admin / Writer Access Request — Current News Editorial Desk');
@@ -120,6 +122,15 @@ export default function SignInView(): React.JSX.Element {
       if (cred?.user) {
         // Fast, zero-network sync of cached claims before navigation
         await syncUserAuthState(cred.user);
+        // Persist user identity into Neon PostgreSQL users & subscribers tables
+        adminFetch('/api/admin/users/sync', {
+          method: 'POST',
+          body: JSON.stringify({
+            uid: cred.user.uid,
+            email: cred.user.email,
+            displayName: cred.user.displayName || null,
+          }),
+        }).catch(() => {});
       }
 
       navigate('/admin', { replace: true });
@@ -166,6 +177,15 @@ export default function SignInView(): React.JSX.Element {
       if (res.success && res.user) {
         // Fast, zero-network sync of cached claims before navigation
         await syncUserAuthState(res.user);
+        // Persist user identity into Neon PostgreSQL users & subscribers tables
+        adminFetch('/api/admin/users/sync', {
+          method: 'POST',
+          body: JSON.stringify({
+            uid: res.user.uid,
+            email: res.user.email,
+            displayName: res.user.displayName || null,
+          }),
+        }).catch(() => {});
         navigate('/admin', { replace: true });
       } else if (!res.cancelled && res.error) {
         setErrorMessage(res.error);
@@ -204,9 +224,10 @@ export default function SignInView(): React.JSX.Element {
             {/* Left side logo aligned with email & password */}
             <div className="w-20 h-20 sm:w-24 sm:h-24 border border-black/20 dark:border-white/20 p-2.5 sm:p-3 flex items-center justify-center shrink-0">
               <img 
-                src="/CurrentNews.png" 
+                src={CURRENT_NEWS_LOGO} 
                 alt="Current News Logo" 
                 className="w-full h-full object-contain" 
+                onError={handleLogoError}
               />
             </div>
 

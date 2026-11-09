@@ -439,7 +439,7 @@ export default function DraftPublicationView(): React.JSX.Element {
           const notifTitle = `Breaking News: ${title.trim()}`;
           const safeNotifImage = (imageUrl && imageUrl.startsWith('http')) ? imageUrl : undefined;
 
-          adminFetch('/api/push/broadcast', {
+          adminFetch('/api/admin/push/broadcast', {
             method: 'POST',
             body: JSON.stringify({
               title: notifTitle,

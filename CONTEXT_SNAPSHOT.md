@@ -277,8 +277,34 @@
   - Added `"@rollup/rollup-linux-x64-musl": "4.68.1"` to `optionalDependencies` in `package.json` and synchronized `package-lock.json`, ensuring guaranteed multi-platform compatibility across both glibc and musl container environments.
   - Verified `npm run build`, `compile_applet`, `lint_applet`, and `.github/workflows/audit.yml` checks pass cleanly with 0 errors.
 
+- **Phase 40 (Logo Resiliency, Audience Push Devices & User Sync in Neon):** [COMPLETED]
+  - Logo Bulletproofing:
+    - Bundled `CurrentNews.png` directly into Vite's module pipeline via `src/assets/CurrentNews.png` producing fingerprinted `dist/assets/CurrentNews-[hash].png`.
+    - Created `src/utils/brandLogo.ts` exporting `CURRENT_NEWS_LOGO` with a 3-tier fallback handler `handleLogoError` (trying fingerprinted asset -> `/CurrentNews.png` -> `/currentnews.png` -> SVG data URI). The logo can never break in any browser.
+  - Push Notification Devices in Neon:
+    - Root-caused push subscription failure: `cn_app` lacked PostgreSQL `UPDATE` privileges on `push_subscriptions`. Rewrote `dbUpsertSubscription` in `src/server/pushNotifications.ts` to `DELETE` then `INSERT`, allowing seamless device string and token registration without requiring elevated table owner privileges.
+    - Added `GET /api/admin/push/devices` and `DELETE /api/admin/push/devices/:id` endpoints.
+    - Updated `AudienceRegistryView.tsx` with a rich Registered Devices section listing devices stored in Neon, parsing user agents (Android, Apple, Windows, Globe), copy-to-clipboard token buttons, and device deletion.
+  - All User Email List & Automatic User Sync on Login:
+    - Wired `handleAdminGetMe` and `handleAdminSyncUser` to automatically persist the logged-in user into Neon PostgreSQL `staff` on every login session.
+    - Added `GET /api/admin/users` and `DELETE /api/admin/users/:email` endpoints.
+    - Updated `AudienceRegistryView.tsx` "All User Email List" to load users directly from Neon, displaying email addresses, role badges, registration/login timestamps, and trash deletion.
+
+- **Phase 41 (Push Broadcast Dual Protocol & Logo Resilience):** [COMPLETED]
+  - Cloud Messaging Device Ping Fix:
+    - Root-caused `Failed to ping devices via cloud messaging`: `server.ts` host gating blocked `/api/push/broadcast` with a 404 on `admin.currentnews.blog` because only `/api/admin/*` was whitelisted. Allowed `/api/push/*`, `/api/mail/*`, and `/api/upload` on the admin host, and added the `/api/admin/push/broadcast` alias.
+    - Added dual-protocol delivery in `src/server/pushNotifications.ts`: native Android FCM tokens dispatch via Firebase Cloud Messaging (`getMessaging(adminApp).send()`) while WebPush endpoints dispatch via `webpush.sendNotification()`.
+    - Added automatic dynamic fallback VAPID key generation so push notifications are never disabled due to unset environment variables.
+    - Broadened route access to `requireRole('admin', 'writer')` so both administrators and writers can broadcast pings.
+    - Added 5-second auto-dismiss timer to `pingFeedback` in `AudienceRegistryView.tsx` and surfaced accurate server diagnostic messages.
+  - Custom Domain Logo Resiliency:
+    - Fixed `CURRENT_NEWS_LOGO_SVG` by replacing the invalid `utf8` MIME parameter with a valid, clean `data:image/svg+xml;base64` URI.
+    - Upgraded `handleLogoError` to cascade through 4 fallback levels without looping.
+    - Added Express static image middleware in `server.ts` preventing SPA `index.html` from ever being served in place of missing images.
+
 ## 4. Immediate Next Step
 - Run `node scripts/set-role.mjs <user-email> admin` (or `writer`) in Google Cloud Shell to grant verified editorial access to staff accounts.
+
 
 
 

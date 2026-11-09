@@ -533,19 +533,19 @@ All `/internal/*` routes require:
     { "success": false, "error": "Forbidden: Your account has no admin role yet", "code": "no_role" }
     ```
 
-### `POST /api/push/broadcast`
+### `POST /api/push/broadcast` & `POST /api/admin/push/broadcast`
 - **Method:** `POST`
 - **Headers:**
   - `Authorization: Bearer <Firebase_ID_Token>` (Mandatory via `adminFetch`)
   - `Content-Type: application/json`
-- **Access:** `admin` custom claim role
+- **Access:** `admin` or `writer` custom claim role
 - **Payload:**
   ```json
-  { "title": "Current News Alert", "body": "...", "url": "/" }
+  { "title": "Current News Alert", "body": "...", "url": "/", "postId": "...", "image": "https://..." }
   ```
 - **Response Shape (200 OK):**
   ```json
-  { "success": true, "sent": 42, "message": "Dispatched successfully" }
+  { "success": true, "sent": 42, "failed": 0, "purged": 1, "total": 42, "message": "Dispatched successfully" }
   ```
 
 ### `POST /api/mail/send-alert`
@@ -563,6 +563,73 @@ All `/internal/*` routes require:
   ```json
   { "success": true, "message": "Alert circular queued for delivery" }
   ```
+
+### `GET /api/admin/push/devices`
+- **Method:** `GET`
+- **Headers:** `Authorization: Bearer <Firebase_ID_Token>` (Mandatory via `adminFetch`)
+- **Access:** `admin` or `writer` role
+- **Response Shape (200 OK):**
+  ```json
+  {
+    "success": true,
+    "count": 2,
+    "devices": [
+      {
+        "id": "1",
+        "endpoint": "https://fcm.googleapis.com/fcm/send/...",
+        "userAgent": "Mozilla/5.0 ...",
+        "createdAt": "2026-11-09T11:25:56.921Z"
+      }
+    ]
+  }
+  ```
+
+### `DELETE /api/admin/push/devices/:id`
+- **Method:** `DELETE`
+- **Headers:** `Authorization: Bearer <Firebase_ID_Token>`
+- **Access:** `admin` role
+- **Response Shape (200 OK):**
+  ```json
+  { "success": true, "message": "Device removed successfully." }
+  ```
+
+### `GET /api/admin/users`
+- **Method:** `GET`
+- **Headers:** `Authorization: Bearer <Firebase_ID_Token>` (Mandatory via `adminFetch`)
+- **Access:** `admin` or `writer` role
+- **Response Shape (200 OK):**
+  ```json
+  {
+    "success": true,
+    "count": 3,
+    "users": [
+      {
+        "id": "uid_123",
+        "email": "editor@currentnews.blog",
+        "role": "admin",
+        "displayName": "Senior Editor",
+        "lastLoginAt": "2026-11-09T11:45:00.000Z",
+        "createdAt": "2026-11-09T11:00:00.000Z"
+      }
+    ]
+  }
+  ```
+
+### `DELETE /api/admin/users/:email`
+- **Method:** `DELETE`
+- **Headers:** `Authorization: Bearer <Firebase_ID_Token>`
+- **Access:** `admin` role
+- **Response Shape (200 OK):**
+  ```json
+  { "success": true, "message": "User user@example.com removed successfully." }
+  ```
+
+### `POST /api/admin/users/sync`
+- **Method:** `POST`
+- **Headers:** `Authorization: Bearer <Firebase_ID_Token>`
+- **Access:** `admin` or `writer` role
+- **Payload:** `{ "uid": "...", "email": "...", "displayName": "..." }`
+- **Response Shape (200 OK):** `{ "success": true, "message": "User synced successfully." }`
 
 ## 13. Admin Host Routing & Edge Auth Leeway (`server.ts` & `worker/src/index.ts`)
 

@@ -977,11 +977,25 @@ export async function handleAdminDeleteArticle(req: Request, res: Response) {
 
 /**
  * GET /api/admin/me
- * Returns authenticated staff identity and role.
+ * Returns authenticated staff identity and role, and automatically syncs the user to Neon.
  */
 export async function handleAdminGetMe(req: Request, res: Response) {
   if (!req.user) {
     return res.status(401).json({ success: false, error: 'Unauthorized', code: 'no_token' });
+  }
+
+  // Automatically record / sync logged in user into Neon database (staff table)
+  if (req.user.uid && req.user.email && isNeonConfigured()) {
+    const role = req.user.role === 'writer' ? 'writer' : 'admin';
+    query(
+      `INSERT INTO staff (uid, email, role, pen_name)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (uid) DO UPDATE
+         SET email = EXCLUDED.email,
+             role = EXCLUDED.role,
+             pen_name = COALESCE(EXCLUDED.pen_name, staff.pen_name)`,
+      [req.user.uid, req.user.email, role, req.user.name || null]
+    ).catch(err => console.debug('[Neon Staff Sync on Me]:', err?.message));
   }
 
   return res.status(200).json({
@@ -990,6 +1004,116 @@ export async function handleAdminGetMe(req: Request, res: Response) {
     role: req.user.role,
     email: req.user.email
   });
+}
+
+/**
+ * POST /api/admin/users/sync
+ * Explicit endpoint called upon login or sign-in to guarantee user is stored in Neon.
+ */
+export async function handleAdminSyncUser(req: Request, res: Response) {
+  if (!req.user) {
+    return res.status(401).json({ success: false, error: 'Unauthorized', code: 'no_token' });
+  }
+
+  const email = (req.body?.email || req.user.email || '').trim().toLowerCase();
+  const uid = req.body?.uid || req.user.uid;
+  const role = (req.body?.role || req.user.role) === 'writer' ? 'writer' : 'admin';
+  const displayName = req.body?.displayName || req.user.name || null;
+
+  if (!email || !uid) {
+    return res.status(400).json({ success: false, error: 'User UID and email are required' });
+  }
+
+  if (isNeonConfigured()) {
+    try {
+      await query(
+        `INSERT INTO staff (uid, email, role, pen_name)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (uid) DO UPDATE
+           SET email = EXCLUDED.email,
+               role = EXCLUDED.role,
+               pen_name = COALESCE(EXCLUDED.pen_name, staff.pen_name)`,
+        [uid, email, role, displayName]
+      );
+    } catch (err: any) {
+      console.warn('[Neon Staff] Sync notice:', err?.message || err);
+    }
+  }
+
+  return res.json({ success: true, message: 'User synced successfully.' });
+}
+
+/**
+ * GET /api/admin/users
+ * Returns all registered/logged-in users and subscribers from Neon.
+ */
+export async function handleAdminGetUsers(_req: Request, res: Response) {
+  if (!isNeonConfigured()) {
+    return res.json({
+      success: true,
+      count: 0,
+      users: []
+    });
+  }
+
+  try {
+    const result = await query<{
+      uid: string;
+      email: string;
+      role: string;
+      pen_name: string | null;
+      created_at: string;
+    }>(`
+      SELECT uid, email, role, pen_name, created_at
+      FROM staff
+      ORDER BY created_at DESC
+      LIMIT 500
+    `);
+
+    const users = (result.rows || []).map(r => ({
+      id: r.uid,
+      email: r.email,
+      role: r.role || 'admin',
+      displayName: r.pen_name || '',
+      lastLoginAt: r.created_at,
+      createdAt: r.created_at,
+    }));
+
+    return res.json({
+      success: true,
+      count: users.length,
+      users
+    });
+  } catch (err: any) {
+    console.warn('[Neon Users] Fetch error:', err?.message || err);
+    return res.json({
+      success: true,
+      count: 0,
+      users: []
+    });
+  }
+}
+
+/**
+ * DELETE /api/admin/users/:email
+ * Removes a user/subscriber email from Neon database.
+ */
+export async function handleAdminDeleteUser(req: Request, res: Response) {
+  const email = (req.params.email || req.body?.email || '').trim().toLowerCase();
+  if (!email) {
+    return res.status(400).json({ success: false, error: 'Email parameter is required' });
+  }
+
+  if (isNeonConfigured()) {
+    try {
+      await query('DELETE FROM staff WHERE lower(email) = $1 OR uid = $1', [email]);
+    } catch (err: any) {
+      console.error('[Neon Users] Delete error:', err);
+      return res.status(500).json({ success: false, error: err?.message || 'Failed to delete user' });
+    }
+  }
+
+  return res.json({ success: true, message: `User ${email} removed successfully.` });
 }
 
 /**

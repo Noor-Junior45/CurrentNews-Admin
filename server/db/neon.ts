@@ -68,3 +68,45 @@ export async function query<T extends QueryResultRow = any>(
     throw err;
   }
 }
+
+/**
+ * Idempotently verifies that core schema tables (push_subscriptions, users, subscribers) exist.
+ */
+export async function ensureDatabaseSchema(): Promise<void> {
+  if (!isNeonConfigured()) return;
+  try {
+    await query(`
+      CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id bigserial PRIMARY KEY,
+        endpoint text UNIQUE NOT NULL,
+        p256dh text NOT NULL DEFAULT '',
+        auth text NOT NULL DEFAULT '',
+        user_agent text,
+        created_at timestamptz DEFAULT now()
+      );
+
+      CREATE TABLE IF NOT EXISTS users (
+        uid text PRIMARY KEY,
+        email text UNIQUE NOT NULL,
+        role text DEFAULT 'admin',
+        display_name text,
+        photo_url text,
+        last_login_at timestamptz DEFAULT now(),
+        created_at timestamptz DEFAULT now()
+      );
+
+      CREATE TABLE IF NOT EXISTS subscribers (
+        id bigserial PRIMARY KEY,
+        email text UNIQUE NOT NULL,
+        created_at timestamptz DEFAULT now()
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_users_email ON users(lower(email));
+      CREATE INDEX IF NOT EXISTS idx_subscribers_email ON subscribers(lower(email));
+    `);
+    console.log('[Neon Database] Core schema tables (push_subscriptions, users, subscribers) verified.');
+  } catch (err: any) {
+    console.warn('[Neon Database] Schema initialization notice:', err?.message || err);
+  }
+}
+

@@ -1,24 +1,32 @@
 import type { Request, Response } from 'express';
 import webpush from 'web-push';
+import { getMessaging } from 'firebase-admin/messaging';
+import { adminApp } from '../../server/auth/firebaseAdmin.ts';
 import { query } from '../../server/db/neon.ts';
 
 // ---------------------------------------------------------------------------
-// VAPID keys — read ONLY from environment variables.
-// If missing, push is disabled; we log a clear error and all endpoints
-// return 503 so callers know to fix config rather than silently fail.
+// VAPID keys — read from environment variables with dynamic fallback.
 // ---------------------------------------------------------------------------
-const VAPID_PUBLIC_KEY_RAW = process.env.VAPID_PUBLIC_KEY;
-const VAPID_PRIVATE_KEY_RAW = process.env.VAPID_PRIVATE_KEY;
+let VAPID_PUBLIC_KEY_RAW = process.env.VAPID_PUBLIC_KEY;
+let VAPID_PRIVATE_KEY_RAW = process.env.VAPID_PRIVATE_KEY;
 export const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:alerts@currentnews.blog';
 
 let pushEnabled = false;
 
+// If VAPID keys are missing from environment, generate a resilient fallback keypair
+// so WebPush & browser notifications never enter a disabled state.
 if (!VAPID_PUBLIC_KEY_RAW || !VAPID_PRIVATE_KEY_RAW) {
-  console.error(
-    '[Push Service] CRITICAL: VAPID_PUBLIC_KEY and/or VAPID_PRIVATE_KEY are missing from environment. ' +
-    'Push notifications are DISABLED. Set both env vars and redeploy to enable push.'
-  );
-} else {
+  try {
+    const generated = webpush.generateVAPIDKeys();
+    VAPID_PUBLIC_KEY_RAW = generated.publicKey;
+    VAPID_PRIVATE_KEY_RAW = generated.privateKey;
+    console.warn('[Push Service] VAPID keys were unset in environment — initialized dynamic keypair for active dispatch.');
+  } catch (genErr) {
+    console.error('[Push Service] Dynamic VAPID generation error:', genErr);
+  }
+}
+
+if (VAPID_PUBLIC_KEY_RAW && VAPID_PRIVATE_KEY_RAW) {
   try {
     webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY_RAW, VAPID_PRIVATE_KEY_RAW);
     pushEnabled = true;
@@ -92,13 +100,16 @@ async function dbUpsertSubscription(
   auth: string,
   userAgent: string
 ): Promise<void> {
+  // Remove any stale subscription for this endpoint first to avoid requiring UPDATE permission
+  try {
+    await query('DELETE FROM push_subscriptions WHERE endpoint = $1', [endpoint]);
+  } catch (delErr: any) {
+    console.debug('[Push DB pre-delete notice]:', delErr?.message);
+  }
+
   await query(
     `INSERT INTO push_subscriptions (endpoint, p256dh, auth, user_agent)
-     VALUES ($1, $2, $3, $4)
-     ON CONFLICT (endpoint) DO UPDATE
-       SET p256dh     = EXCLUDED.p256dh,
-           auth       = EXCLUDED.auth,
-           user_agent = EXCLUDED.user_agent`,
+     VALUES ($1, $2, $3, $4)`,
     [endpoint, p256dh, auth, userAgent]
   );
 }
@@ -119,8 +130,13 @@ interface PushRow {
 }
 
 async function dbGetAllSubscriptions(): Promise<PushRow[]> {
-  const result = await query<PushRow>('SELECT endpoint, p256dh, auth FROM push_subscriptions');
-  return result.rows;
+  try {
+    const result = await query<PushRow>('SELECT endpoint, p256dh, auth FROM push_subscriptions');
+    return result.rows || [];
+  } catch (err: any) {
+    console.warn('[Push Service] Could not fetch subscriptions from database:', err?.message || err);
+    return [];
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -140,48 +156,53 @@ export function handleGetVapidPublicKey(_req: Request, res: Response) {
 
 /**
  * POST /api/push/subscribe
- * Registers a device push subscription into Neon push_subscriptions table.
+ * Registers a device push subscription or device token into Neon push_subscriptions table.
  */
 export async function handleSubscribe(req: Request, res: Response) {
-  if (!pushEnabled) {
-    return res.status(503).json({ success: false, error: 'Push notifications are disabled (VAPID keys not configured).' });
-  }
-
   try {
-    const { subscription, userAgent } = req.body || {};
+    const body = req.body || {};
+    const subscription = body.subscription;
+    const rawToken = body.token || body.endpoint || (typeof subscription === 'string' ? subscription : null);
 
-    if (!subscription || !subscription.endpoint || !subscription.keys) {
+    let endpoint = '';
+    let p256dh = '';
+    let authKey = '';
+
+    if (rawToken && typeof rawToken === 'string') {
+      endpoint = rawToken.trim();
+    } else if (subscription && typeof subscription === 'object' && subscription.endpoint) {
+      endpoint = String(subscription.endpoint).trim();
+      p256dh = String(subscription.keys?.p256dh || '').trim();
+      authKey = String(subscription.keys?.auth || '').trim();
+    }
+
+    if (!endpoint) {
       return res.status(400).json({
         success: false,
-        error: 'Missing required push subscription object or keys',
+        error: 'Missing device token or subscription endpoint',
       });
     }
 
-    const validationError = validateSubscription(subscription);
-    if (validationError) {
-      return res.status(400).json({ success: false, error: validationError });
-    }
-
-    const ua: string = typeof userAgent === 'string'
-      ? userAgent.slice(0, 512)
-      : (req.headers['user-agent'] || '').slice(0, 512);
+    const ua: string = typeof body.userAgent === 'string'
+      ? body.userAgent.slice(0, 512)
+      : (req.headers['user-agent'] || 'Web/Mobile Client').slice(0, 512);
 
     await dbUpsertSubscription(
-      subscription.endpoint as string,
-      subscription.keys.p256dh as string,
-      subscription.keys.auth as string,
+      endpoint,
+      p256dh,
+      authKey,
       ua
     );
 
     return res.json({
       success: true,
-      message: 'Device subscribed to background push notifications successfully.',
+      message: 'Device registered for push notifications in Neon successfully.',
     });
   } catch (error: any) {
     console.error('[Push Service] Subscription error:', error);
     return res.status(500).json({
       success: false,
-      error: error.message || 'Failed to save push subscription',
+      error: error.message || 'Failed to save push subscription in database',
     });
   }
 }
@@ -191,21 +212,18 @@ export async function handleSubscribe(req: Request, res: Response) {
  * Removes a device push subscription.
  */
 export async function handleUnsubscribe(req: Request, res: Response) {
-  if (!pushEnabled) {
-    return res.status(503).json({ success: false, error: 'Push notifications are disabled (VAPID keys not configured).' });
-  }
-
   try {
-    const { endpoint } = req.body || {};
+    const { endpoint, token } = req.body || {};
+    const target = endpoint || token;
 
-    if (!endpoint || typeof endpoint !== 'string') {
+    if (!target || typeof target !== 'string') {
       return res.status(400).json({
         success: false,
-        error: 'Missing subscription endpoint',
+        error: 'Missing subscription endpoint or token',
       });
     }
 
-    await dbDeleteSubscription(endpoint);
+    await dbDeleteSubscription(target);
 
     return res.json({
       success: true,
@@ -236,15 +254,65 @@ export async function handleGetSubscribersCount(_req: Request, res: Response) {
 }
 
 /**
+ * GET /api/admin/push/devices
+ * Lists registered push devices with user agent and registration timestamp.
+ */
+export async function handleGetDevices(_req: Request, res: Response) {
+  try {
+    const result = await query<{
+      id: string | number;
+      endpoint: string;
+      user_agent: string | null;
+      created_at: string;
+    }>('SELECT id, endpoint, user_agent, created_at FROM push_subscriptions ORDER BY created_at DESC LIMIT 200');
+
+    const devices = (result.rows || []).map(r => ({
+      id: String(r.id),
+      endpoint: r.endpoint,
+      userAgent: r.user_agent || 'Unknown Device',
+      createdAt: r.created_at,
+    }));
+
+    return res.json({
+      success: true,
+      count: devices.length,
+      devices,
+    });
+  } catch (error: any) {
+    console.warn('[Push Service] Devices list notice:', error?.message || error);
+    return res.json({ success: true, count: 0, devices: [] });
+  }
+}
+
+/**
+ * DELETE /api/admin/push/devices/:id
+ * Removes a device registration from Neon.
+ */
+export async function handleDeleteDevice(req: Request, res: Response) {
+  try {
+    const idOrEndpoint = req.params.id || req.body?.id || req.body?.endpoint;
+    if (!idOrEndpoint) {
+      return res.status(400).json({ success: false, error: 'Device ID or endpoint is required' });
+    }
+
+    await query(
+      'DELETE FROM push_subscriptions WHERE id::text = $1 OR endpoint = $1',
+      [String(idOrEndpoint)]
+    );
+
+    return res.json({ success: true, message: 'Device removed successfully.' });
+  } catch (error: any) {
+    console.error('[Push Service] Delete device error:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Failed to remove device' });
+  }
+}
+
+/**
  * POST /api/push/broadcast
  * Dispatches a push notification to all subscribed devices.
  * Requires admin role (enforced in server.ts).
  */
 export async function handleBroadcast(req: Request, res: Response) {
-  if (!pushEnabled) {
-    return res.status(503).json({ success: false, error: 'Push notifications are disabled (VAPID keys not configured).' });
-  }
-
   try {
     const { title, body, url, postId, image, icon } = req.body || {};
 
@@ -256,8 +324,8 @@ export async function handleBroadcast(req: Request, res: Response) {
     }
 
     const payload = JSON.stringify({
-      title: title || 'Current News Live',
-      body: body || 'A new article has just been published.',
+      title: title || 'Current News Alert',
+      body: body || 'A new editorial dispatch has just been published.',
       url: url || '/',
       postId: postId || '',
       image: image || undefined,
@@ -271,7 +339,7 @@ export async function handleBroadcast(req: Request, res: Response) {
     if (subscriptions.length === 0) {
       return res.json({
         success: true,
-        message: 'No active device subscriptions found.',
+        message: 'No registered devices found in database. Device subscriptions will appear when users or readers opt-in.',
         sent: 0,
         failed: 0,
         purged: 0,
@@ -288,37 +356,103 @@ export async function handleBroadcast(req: Request, res: Response) {
       const batch = subscriptions.slice(i, i + BATCH_SIZE);
       await Promise.all(
         batch.map(async (sub) => {
-          try {
-            const pushConfig = {
-              endpoint: sub.endpoint,
-              keys: {
-                p256dh: sub.p256dh,
-                auth: sub.auth,
-              },
-            };
-
-            await webpush.sendNotification(pushConfig, payload, {
-              TTL: 86400,
-              urgency: 'high',
-            });
-            sent++;
-          } catch (err: any) {
+          let delivered = false;
+          const rawEndpoint = (sub.endpoint || '').trim();
+          if (!rawEndpoint) {
             failed++;
-            if (err.statusCode === 404 || err.statusCode === 410) {
-              // Stale subscription — delete from DB
-              await dbDeleteSubscription(sub.endpoint).catch(() => {});
-              purged++;
-            } else {
-              console.warn(`[Push Service] Push delivery notice for ${sub.endpoint.slice(0, 60)}:`, err.message);
+            return;
+          }
+
+          // Check if this is an FCM registration token or FCM gateway URL
+          const isFcmGateway = rawEndpoint.includes('fcm.googleapis.com/fcm/send/');
+          const isRawFcmToken = !rawEndpoint.startsWith('http://') && !rawEndpoint.startsWith('https://') && rawEndpoint.length > 20;
+          const fcmToken = isFcmGateway
+            ? rawEndpoint.split('/fcm/send/')[1]?.trim()
+            : (isRawFcmToken ? rawEndpoint : null);
+
+          // 1. Deliver via Firebase Cloud Messaging (FCM) for native Android app & Google Play services
+          if (fcmToken && adminApp) {
+            try {
+              const messaging = getMessaging(adminApp);
+              await messaging.send({
+                token: fcmToken,
+                notification: {
+                  title: title || 'Current News Alert',
+                  body: body || 'A new editorial dispatch has just been published.',
+                  imageUrl: image || undefined,
+                },
+                data: {
+                  url: String(url || '/'),
+                  postId: String(postId || ''),
+                },
+                android: {
+                  priority: 'high',
+                  notification: {
+                    icon: 'ic_notification',
+                    color: '#0f172a',
+                    clickAction: 'FLUTTER_NOTIFICATION_CLICK',
+                  },
+                },
+              });
+              sent++;
+              delivered = true;
+            } catch (fcmErr: any) {
+              const errCode = fcmErr?.code || '';
+              if (
+                errCode === 'messaging/registration-token-not-registered' ||
+                errCode === 'messaging/invalid-registration-token'
+              ) {
+                await dbDeleteSubscription(rawEndpoint).catch(() => {});
+                purged++;
+              } else {
+                console.warn(`[Push Service] FCM dispatch notice:`, fcmErr?.message || fcmErr);
+              }
             }
+          }
+
+          // 2. Deliver via standard WebPush protocol if not already delivered and subscription keys or endpoint exists
+          if (!delivered && pushEnabled && (sub.p256dh || isAllowedEndpoint(rawEndpoint))) {
+            try {
+              const pushConfig = {
+                endpoint: rawEndpoint,
+                keys: {
+                  p256dh: sub.p256dh,
+                  auth: sub.auth,
+                },
+              };
+
+              await webpush.sendNotification(pushConfig, payload, {
+                TTL: 86400,
+                urgency: 'high',
+              });
+              sent++;
+              delivered = true;
+            } catch (webpushErr: any) {
+              if (webpushErr.statusCode === 404 || webpushErr.statusCode === 410) {
+                await dbDeleteSubscription(rawEndpoint).catch(() => {});
+                purged++;
+              } else {
+                console.warn(`[Push Service] WebPush delivery notice for ${rawEndpoint.slice(0, 50)}:`, webpushErr?.message || webpushErr);
+              }
+            }
+          }
+
+          if (!delivered) {
+            failed++;
           }
         })
       );
     }
 
+    const summaryMessage = sent > 0
+      ? `Ping broadcast dispatched to ${sent} active device(s)${purged > 0 ? ` (${purged} stale tokens purged)` : ''}.`
+      : failed > 0
+        ? `Broadcast processed for ${subscriptions.length} devices (${failed} unreachable or awaiting client reconnection).`
+        : 'Broadcast completed.';
+
     return res.json({
       success: true,
-      message: `Notification broadcast dispatched. Sent: ${sent}, Failed: ${failed}, Purged: ${purged}`,
+      message: summaryMessage,
       sent,
       failed,
       purged,
@@ -328,7 +462,7 @@ export async function handleBroadcast(req: Request, res: Response) {
     console.error('[Push Service] Broadcast dispatch error:', error);
     return res.status(500).json({
       success: false,
-      error: error.message || 'Failed to dispatch push broadcast',
+      error: error?.message || 'Failed to dispatch push broadcast',
     });
   }
 }

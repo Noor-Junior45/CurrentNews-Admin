@@ -17,6 +17,7 @@ import {
   Copy,
   Check
 } from 'lucide-react';
+import { CURRENT_NEWS_LOGO, handleLogoError } from '../utils/brandLogo';
 
 export default function AdminNavbar(): React.JSX.Element {
   const { user } = useAuthState();
@@ -236,9 +237,10 @@ export default function AdminNavbar(): React.JSX.Element {
           >
             <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl overflow-hidden bg-slate-950 shadow-xs border border-slate-200 dark:border-slate-800 shrink-0 flex items-center justify-center p-0.5 group-hover:shadow-md transition-shadow">
               <img 
-                src="/CurrentNews.png" 
+                src={CURRENT_NEWS_LOGO} 
                 alt="Current News Logo" 
                 className="w-full h-full object-contain" 
+                onError={handleLogoError}
               />
             </div>
             <span className="font-lora text-lg sm:text-2xl font-semibold tracking-tight text-slate-950 dark:text-white leading-none antialiased">
