@@ -256,5 +256,9 @@
   - **Root Cause:** In `src/views/AudienceRegistryView.tsx`, `fetchPushCount()` called the server endpoint `/api/push/subscribers-count` using bare browser `fetch()` rather than `adminFetch()`. Because `/api/push/subscribers-count` is strictly guarded by `requireRole('admin', 'writer')`, the absence of the Bearer token triggered a 401 `no_token` rejection logged on the Express backend.
   - **Permanent Guardrail:** Always invoke administrative and protected server endpoints using `adminFetch<T>()` instead of raw `fetch()`. `adminFetch` automatically synchronizes with `auth.authStateReady()`, attaches the cryptographically verified Firebase ID Bearer token in the `Authorization` header, handles token auto-refresh on 401s, and short-circuits gracefully without making unauthorized network calls if the user session is uninitialized.
 
+- [x] **Bug ID & Summary:** BUG-056 — Cloud Build Failure `Cannot find module @rollup/rollup-linux-x64-musl` during `npm run build`.
+  - **Root Cause:** The `Dockerfile` used `node:22-alpine` for the builder image. Alpine uses `musl` libc, which requires `@rollup/rollup-linux-x64-musl`. Due to npm bug #4828, running `npm ci` on Alpine omitted optional native bindings generated on glibc host systems, causing Rollup and Vite to fail during container builds.
+  - **Permanent Guardrail:** Switched `Dockerfile` base image from `node:22-alpine` to `node:22-slim` (standard Debian glibc), which natively matches Google Cloud Run's execution environment. Additionally added `@rollup/rollup-linux-x64-musl` to `optionalDependencies` in `package.json` and synchronized `package-lock.json` so builds succeed across all container environments (Alpine, Debian, and Ubuntu).
+
 
 

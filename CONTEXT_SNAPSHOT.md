@@ -269,6 +269,14 @@
   - Whitelisted all static assets (`isStaticAsset`) in `server.ts` host routing middleware to prevent any asset from being 302 redirected.
   - Verified with `curl -I -H "Host: admin.currentnews.blog"` returning HTTP 200 OK with `image/png`.
 
+- **Phase 39 (Cloud Build Rollup Musl & Node:22-slim Migration):** [COMPLETED]
+  - Root caused Cloud Build failure `Cannot find module @rollup/rollup-linux-x64-musl`:
+    - `Dockerfile` previously used Alpine Linux (`node:22-alpine`). Alpine relies on `musl` libc, requiring Rollup's native musl binary (`@rollup/rollup-linux-x64-musl`).
+    - Due to npm CLI issue #4828, optional platform-specific dependencies for non-host architectures can be omitted during `npm ci` on Alpine when the lockfile was resolved on standard Linux (glibc).
+  - Switched `Dockerfile` builder and runner stages from `node:22-alpine` to standard Debian `node:22-slim`, matching Google Cloud Run's official glibc environment and eliminating musl compatibility issues.
+  - Added `"@rollup/rollup-linux-x64-musl": "4.68.1"` to `optionalDependencies` in `package.json` and synchronized `package-lock.json`, ensuring guaranteed multi-platform compatibility across both glibc and musl container environments.
+  - Verified `npm run build`, `compile_applet`, `lint_applet`, and `.github/workflows/audit.yml` checks pass cleanly with 0 errors.
+
 ## 4. Immediate Next Step
 - Run `node scripts/set-role.mjs <user-email> admin` (or `writer`) in Google Cloud Shell to grant verified editorial access to staff accounts.
 

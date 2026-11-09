@@ -10,7 +10,7 @@
 ## 2. Dockerfile Specification (Multi-Stage Production Build)
 ```dockerfile
 # Stage 1: Build Application
-FROM node:22-alpine AS builder
+FROM node:22-slim AS builder
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci || npm install
@@ -18,7 +18,7 @@ COPY . .
 RUN npm run build
 
 # Stage 2: Production Execution Image
-FROM node:22-alpine AS runner
+FROM node:22-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=8080
