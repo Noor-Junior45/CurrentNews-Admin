@@ -418,8 +418,8 @@ async function startServer() {
   app.get('/api/app/version', asyncHandler(handleGetAppVersion));
   app.post('/api/app/version', requireRole('admin'), asyncHandler(handleUpdateAppVersion));
 
-  // Backend mail endpoint for automated subscriber alerting (admin only)
-  app.post('/api/mail/send-alert', mailAlertLimiter, requireRole('admin'), asyncHandler(sendAlertHandler));
+  // Backend mail endpoint for automated subscriber alerting (admin and writer testing)
+  app.post('/api/mail/send-alert', mailAlertLimiter, requireRole('admin', 'writer'), asyncHandler(sendAlertHandler));
 
   // Inbound mail endpoint for webhook notifications and recipient autofill
   app.all('/api/mail/inbound', asyncHandler(inboundHandler));
@@ -456,10 +456,10 @@ async function startServer() {
   app.delete('/api/admin/push/devices/:id', requireRole('admin', 'writer'), asyncHandler(handleDeleteDevice));
   app.post('/api/admin/push/delete-device', requireRole('admin', 'writer'), asyncHandler(handleDeleteDevice));
 
-  // User Management & Audience Registry Endpoints (Neon PostgreSQL source of truth)
+  // User Management & Audience Registry Endpoints (Neon PostgreSQL & Firebase source of truth)
   app.get('/api/admin/users', requireRole('admin', 'writer'), asyncHandler(handleAdminGetUsers));
   app.delete('/api/admin/users/:email', requireRole('admin'), asyncHandler(handleAdminDeleteUser));
-  app.post('/api/admin/users/sync', requireRole('admin', 'writer'), asyncHandler(handleAdminSyncUser));
+  app.post(['/api/users/sync', '/api/admin/users/sync'], asyncHandler(handleAdminSyncUser));
 
   // Fallback 404 handler for any unmatched /api/* route so it NEVER returns HTML to API clients
   app.all('/api/*', (_req, res) => {

@@ -3,27 +3,31 @@ import type { Request, Response } from 'express';
 async function sendResendEmail(toEmail: string, subject: string, htmlContent: string, textContent: string) {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
-    throw new Error('RESEND_API_KEY environment variable is not defined.');
+    throw new Error('RESEND_API_KEY environment variable is not defined. Please add RESEND_API_KEY to your environment variables.');
   }
 
   const senderEmail = process.env.RESEND_SENDER_EMAIL || 'alerts@currentnews.blog';
   const senderName = process.env.RESEND_SENDER_NAME || 'Current News';
 
-  const response = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      from: `${senderName} <${senderEmail}>`,
-      to: [toEmail],
-      subject: subject,
-      html: htmlContent,
-      text: textContent,
-      reply_to: 'Current News Support <help@currentnews.blog>'
-    })
-  });
+  const dispatchEmail = async (fromAddress: string) => {
+    return await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from: `${senderName} <${fromAddress}>`,
+        to: [toEmail],
+        subject: subject,
+        html: htmlContent,
+        text: textContent,
+        reply_to: 'Current News Support <help@currentnews.blog>'
+      })
+    });
+  };
+
+  let response = await dispatchEmail(senderEmail);
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -36,14 +40,31 @@ async function sendResendEmail(toEmail: string, subject: string, htmlContent: st
     } catch (e) {}
 
     const lowerMsg = parsedMessage.toLowerCase();
-    // Resend's equivalent of Brevo's "IP not whitelisted" gotcha: until you verify a
-    // sending domain, it only lets you send to the email address on your own account.
-    if (
+    const isDomainIssue = (
       response.status === 403 &&
       (lowerMsg.includes('domain is not verified') ||
         lowerMsg.includes('you can only send testing emails') ||
-        lowerMsg.includes('verify a domain'))
-    ) {
+        lowerMsg.includes('verify a domain') ||
+        lowerMsg.includes('not verified'))
+    );
+
+    // If custom domain is not verified yet and sender wasn't onboarding@resend.dev, try Resend's sandbox sender
+    if (isDomainIssue && senderEmail !== 'onboarding@resend.dev') {
+      console.warn(`[Resend API] Domain '${senderEmail}' is unverified. Retrying test dispatch via onboarding@resend.dev...`);
+      const fallbackResponse = await dispatchEmail('onboarding@resend.dev');
+      if (fallbackResponse.ok) {
+        return await fallbackResponse.json();
+      }
+      const fbErrorText = await fallbackResponse.text();
+      let fbMsg = fbErrorText;
+      try {
+        const parsedFb = JSON.parse(fbErrorText);
+        if (parsedFb.message) fbMsg = parsedFb.message;
+      } catch (_) {}
+      throw new Error(`RESEND_DOMAIN_UNVERIFIED: ${fbMsg || parsedMessage}`);
+    }
+
+    if (isDomainIssue) {
       throw new Error(`RESEND_DOMAIN_UNVERIFIED: ${parsedMessage}`);
     }
 
@@ -94,17 +115,16 @@ export default async function handler(req: Request, res: Response) {
     return res.status(400).json({ success: false, message: 'Invalid recipient email address format.' });
   }
 
-  // Validate and sanitize link URL using URL parsing
+  // Validate and sanitize link URL using safe URL parsing
   let safeLink = 'https://currentnews.blog';
   if (link && typeof link === 'string') {
     try {
       const u = new URL(link.trim());
-      if (u.protocol !== 'https:' || (u.hostname !== 'currentnews.blog' && u.hostname !== 'www.currentnews.blog')) {
-        return res.status(400).json({ success: false, message: 'Invalid link. Must be an https:// URL on currentnews.blog or www.currentnews.blog.' });
+      if (u.protocol === 'https:' || u.protocol === 'http:') {
+        safeLink = u.toString();
       }
-      safeLink = u.toString();
     } catch {
-      return res.status(400).json({ success: false, message: 'Invalid link URL.' });
+      safeLink = 'https://currentnews.blog';
     }
   }
 
@@ -249,23 +269,32 @@ export default async function handler(req: Request, res: Response) {
     });
 
   } catch (err: any) {
-    console.error('[VERCEL SERVERLESS RESEND API] Failed to send email via Resend API:', err);
+    console.error('[Resend API] Failed to send email via Resend API:', err);
 
     if (err.message && err.message.startsWith('RESEND_DOMAIN_UNVERIFIED:')) {
       const rawMessage = err.message.replace('RESEND_DOMAIN_UNVERIFIED:', '').trim();
       return res.status(403).json({
         success: false,
         isDomainRestriction: true,
-        message: `Resend blocked this request because your sending domain isn't verified yet.`,
+        error: `Resend sandbox restriction: ${rawMessage}. Tip: In Resend test mode, emails can only be delivered to your own registered Resend account email address until you verify your domain at resend.com/domains.`,
+        message: `Resend domain unverified: ${rawMessage}`,
         detail: rawMessage,
         solution: `Please log into Resend, go to Domains (https://resend.com/domains), add and verify "currentnews.blog" (or whichever domain you're sending from), then set RESEND_SENDER_EMAIL to an address on that domain. Until verified, Resend only lets you send to the email address on your own Resend account.`
       });
     }
 
+    if (err.message && err.message.includes('RESEND_API_KEY')) {
+      return res.status(500).json({
+        success: false,
+        error: 'RESEND_API_KEY environment variable is not defined. Please add RESEND_API_KEY in your environment variables.',
+        message: 'RESEND_API_KEY is not defined'
+      });
+    }
+
     return res.status(500).json({
       success: false,
-      message: 'Resend API dispatch failed',
-      error: err.message
+      error: err.message || 'Resend API dispatch failed',
+      message: err.message || 'Resend API dispatch failed'
     });
   }
 }

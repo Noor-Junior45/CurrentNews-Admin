@@ -4,6 +4,7 @@ import { z } from 'zod';
 import sanitizeHtml from 'sanitize-html';
 import { query, isNeonConfigured } from '../db/neon.ts';
 import { adminAuth } from '../auth/firebaseAdmin.ts';
+import { verifyFirebaseTokenSafely } from '../auth/tokenVerifier.ts';
 import { saveArticleToR2, deleteArticleFromR2, getFeedFromR2, loadLocalFeed, extractPlainExcerpt, getArticleFromR2 } from '../../src/server/r2Articles.ts';
 import { slugify } from '../../src/types.ts';
 import { syncSingleArticle, unpublishArticleFromD1, syncPendingArticles, isD1SyncConfigured } from '../sync/d1Publisher.ts';
@@ -1009,37 +1010,56 @@ export async function handleAdminGetMe(req: Request, res: Response) {
 }
 
 /**
- * POST /api/admin/users/sync
- * Explicit endpoint called upon login or sign-in to guarantee user is stored in Neon.
+ * POST /api/users/sync and POST /api/admin/users/sync
+ * Authenticated endpoint called upon login or sign-in to guarantee user is stored in users & staff tables.
+ * Allows any authenticated Firebase user to sync their own profile, while admins can sync any user.
  */
-export async function handleAdminSyncUser(req: Request, res: Response) {
-  if (!req.user) {
-    return res.status(401).json({ success: false, error: 'Unauthorized', code: 'no_token' });
+export async function handleUserSync(req: Request, res: Response) {
+  let userUid = req.user?.uid;
+  let userEmail = req.user?.email;
+  let userRole = req.user?.role || 'reader';
+  let userName = req.user?.name;
+
+  // If request has not already passed requireRole middleware, verify Bearer token directly
+  if (!userUid) {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ success: false, error: 'Unauthorized: Missing token', code: 'no_token' });
+    }
+    const token = authHeader.substring(7).trim();
+    if (!token) {
+      return res.status(401).json({ success: false, error: 'Unauthorized: Empty token', code: 'no_token' });
+    }
+    try {
+      const decoded = await verifyFirebaseTokenSafely(token);
+      userUid = decoded.uid;
+      userEmail = decoded.email;
+      userRole = decoded.role || 'reader';
+      userName = decoded.name || decoded.displayName;
+    } catch (err: any) {
+      return res.status(401).json({ success: false, error: 'Unauthorized: Invalid token', code: 'invalid_token' });
+    }
   }
 
-  // Prevent role escalation & IDOR: non-admins cannot override uid, email, or role.
-  // When an admin syncs a differing target uid, require an explicit email and role.
-  const isAdmin = req.user.role === 'admin';
+  const isAdmin = userRole === 'admin';
   const targetUid = req.body?.uid ? String(req.body.uid).trim() : '';
-  const isTargetingOther = isAdmin && targetUid && targetUid !== req.user.uid;
+  const isTargetingOther = isAdmin && targetUid && targetUid !== userUid;
 
-  let uid = req.user.uid;
-  let email = (req.user.email || '').trim().toLowerCase();
-  let role: 'admin' | 'writer' = req.user.role === 'admin' ? 'admin' : 'writer';
+  let uid = userUid;
+  let email = (userEmail || req.body?.email || '').trim().toLowerCase();
+  let role = userRole;
 
   if (isTargetingOther) {
-    if (!req.body?.email || !req.body?.role) {
-      return res.status(400).json({
-        success: false,
-        error: 'Explicit target email and role are required when overriding another user record'
-      });
-    }
     uid = targetUid;
-    email = String(req.body.email).trim().toLowerCase();
-    role = req.body.role === 'admin' ? 'admin' : 'writer';
+    if (req.body?.email) {
+      email = String(req.body.email).trim().toLowerCase();
+    }
+    if (req.body?.role) {
+      role = req.body.role;
+    }
   }
 
-  const displayName = req.body?.displayName || (uid === req.user.uid ? req.user.name : null) || null;
+  const displayName = req.body?.displayName || (uid === userUid ? userName : null) || null;
 
   if (!email || !uid) {
     return res.status(400).json({ success: false, error: 'User UID and email are required' });
@@ -1047,77 +1067,167 @@ export async function handleAdminSyncUser(req: Request, res: Response) {
 
   if (isNeonConfigured()) {
     try {
+      // 1. Record the logged-in user in the primary users table
       await query(
-        `INSERT INTO staff (uid, email, role, pen_name)
-         VALUES ($1, $2, $3, $4)
+        `INSERT INTO users (uid, email, role, display_name, last_login_at)
+         VALUES ($1, $2, $3, $4, NOW())
          ON CONFLICT (uid) DO UPDATE
            SET email = EXCLUDED.email,
-               role = EXCLUDED.role,
-               pen_name = COALESCE(EXCLUDED.pen_name, staff.pen_name)`,
+               role = COALESCE(users.role, EXCLUDED.role),
+               display_name = COALESCE(EXCLUDED.display_name, users.display_name),
+               last_login_at = NOW()`,
         [uid, email, role, displayName]
       );
+
+      // 2. If the user has staff privileges (admin or writer), also upsert staff table
+      if (role === 'admin' || role === 'writer') {
+        await query(
+          `INSERT INTO staff (uid, email, role, pen_name)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (uid) DO UPDATE
+             SET email = EXCLUDED.email,
+                 role = EXCLUDED.role,
+                 pen_name = COALESCE(EXCLUDED.pen_name, staff.pen_name)`,
+          [uid, email, role, displayName]
+        );
+      }
     } catch (err: any) {
-      console.warn('[Neon Staff] Sync notice:', err?.message || err);
+      console.warn('[Neon Users] Sync notice:', err?.message || err);
     }
   }
 
   return res.json({ success: true, message: 'User synced successfully.' });
 }
 
+export const handleAdminSyncUser = handleUserSync;
+
 /**
  * GET /api/admin/users
- * Returns all registered/logged-in users and subscribers from Neon.
+ * Returns all registered/logged-in users from Firebase Authentication and Neon database.
  */
 export async function handleAdminGetUsers(_req: Request, res: Response) {
-  if (!isNeonConfigured()) {
-    return res.json({
-      success: true,
-      count: 0,
-      users: []
-    });
-  }
+  const userMap = new Map<string, {
+    id: string;
+    email: string;
+    role: string;
+    displayName: string;
+    lastLoginAt?: string;
+    createdAt?: string;
+  }>();
 
+  // 1. Fetch all users from Firebase Authentication (if Firebase Admin has credentials)
   try {
-    const result = await query<{
-      uid: string;
-      email: string;
-      role: string;
-      pen_name: string | null;
-      created_at: string;
-    }>(`
-      SELECT uid, email, role, pen_name, created_at
-      FROM staff
-      ORDER BY created_at DESC
-      LIMIT 500
-    `);
-
-    const users = (result.rows || []).map(r => ({
-      id: r.uid,
-      email: r.email,
-      role: r.role || 'admin',
-      displayName: r.pen_name || '',
-      lastLoginAt: r.created_at,
-      createdAt: r.created_at,
-    }));
-
-    return res.json({
-      success: true,
-      count: users.length,
-      users
-    });
-  } catch (err: any) {
-    console.warn('[Neon Users] Fetch error:', err?.message || err);
-    return res.json({
-      success: true,
-      count: 0,
-      users: []
-    });
+    if (adminAuth) {
+      const list = await adminAuth.listUsers(1000);
+      for (const u of (list.users || [])) {
+        if (u.email) {
+          const emailLower = u.email.toLowerCase();
+          const role = (u.customClaims?.role as string) || 'reader';
+          userMap.set(emailLower, {
+            id: u.uid,
+            email: emailLower,
+            role,
+            displayName: u.displayName || '',
+            lastLoginAt: u.metadata?.lastSignInTime || u.metadata?.creationTime,
+            createdAt: u.metadata?.creationTime,
+          });
+        }
+      }
+    }
+  } catch (fbErr: any) {
+    console.debug('[handleAdminGetUsers] Firebase Admin listUsers notice:', fbErr?.message || fbErr);
   }
+
+  // 2. Query Neon Database users table & staff table
+  if (isNeonConfigured()) {
+    try {
+      const dbUsers = await query<{
+        uid: string;
+        email: string;
+        role: string;
+        display_name: string | null;
+        last_login_at: string;
+        created_at: string;
+      }>(`
+        SELECT uid, email, role, display_name, last_login_at, created_at
+        FROM users
+        ORDER BY last_login_at DESC NULLS LAST
+        LIMIT 1000
+      `);
+
+      for (const r of (dbUsers.rows || [])) {
+        if (!r.email) continue;
+        const emailLower = r.email.toLowerCase();
+        const existing = userMap.get(emailLower);
+        if (existing) {
+          if (r.display_name && !existing.displayName) existing.displayName = r.display_name;
+          if (r.role && r.role !== 'reader') existing.role = r.role;
+          if (r.last_login_at) existing.lastLoginAt = r.last_login_at;
+        } else {
+          userMap.set(emailLower, {
+            id: r.uid,
+            email: emailLower,
+            role: r.role || 'reader',
+            displayName: r.display_name || '',
+            lastLoginAt: r.last_login_at || r.created_at,
+            createdAt: r.created_at,
+          });
+        }
+      }
+
+      // Also incorporate staff table if present
+      const staffUsers = await query<{
+        uid: string;
+        email: string;
+        role: string;
+        pen_name: string | null;
+        created_at: string;
+      }>(`
+        SELECT uid, email, role, pen_name, created_at
+        FROM staff
+        ORDER BY created_at DESC
+        LIMIT 500
+      `);
+
+      for (const r of (staffUsers.rows || [])) {
+        if (!r.email) continue;
+        const emailLower = r.email.toLowerCase();
+        const existing = userMap.get(emailLower);
+        if (existing) {
+          if (r.role) existing.role = r.role;
+          if (r.pen_name && !existing.displayName) existing.displayName = r.pen_name;
+        } else {
+          userMap.set(emailLower, {
+            id: r.uid,
+            email: emailLower,
+            role: r.role || 'writer',
+            displayName: r.pen_name || '',
+            lastLoginAt: r.created_at,
+            createdAt: r.created_at,
+          });
+        }
+      }
+    } catch (err: any) {
+      console.warn('[handleAdminGetUsers] Database query notice:', err?.message || err);
+    }
+  }
+
+  const users = Array.from(userMap.values()).sort((a, b) => {
+    const timeA = new Date(a.lastLoginAt || a.createdAt || 0).getTime();
+    const timeB = new Date(b.lastLoginAt || b.createdAt || 0).getTime();
+    return timeB - timeA;
+  });
+
+  return res.json({
+    success: true,
+    count: users.length,
+    users
+  });
 }
 
 /**
  * DELETE /api/admin/users/:email
- * Removes a user/subscriber email from Neon database.
+ * Removes a user/subscriber email from Neon database and Firebase Auth.
  */
 export async function handleAdminDeleteUser(req: Request, res: Response) {
   const email = (req.params.email || req.body?.email || '').trim().toLowerCase();
@@ -1127,12 +1237,28 @@ export async function handleAdminDeleteUser(req: Request, res: Response) {
 
   if (isNeonConfigured()) {
     try {
+      await query('DELETE FROM users WHERE lower(email) = $1 OR uid = $1', [email]);
       await query('DELETE FROM staff WHERE lower(email) = $1 OR uid = $1', [email]);
+      await query('DELETE FROM subscribers WHERE lower(email) = $1', [email]);
     } catch (err: any) {
       console.error('[Neon Users] Delete error:', err);
       return res.status(500).json({ success: false, error: err?.message || 'Failed to delete user' });
     }
   }
+
+  // Also remove from Firebase Auth if adminAuth is available
+  try {
+    if (adminAuth) {
+      if (email.includes('@')) {
+        const u = await adminAuth.getUserByEmail(email).catch(() => null);
+        if (u) {
+          await adminAuth.deleteUser(u.uid).catch(() => {});
+        }
+      } else {
+        await adminAuth.deleteUser(email).catch(() => {});
+      }
+    }
+  } catch (_) {}
 
   return res.json({ success: true, message: `User ${email} removed successfully.` });
 }

@@ -82,6 +82,25 @@ if (typeof window !== 'undefined' && !isAuthInitialized) {
     }
 
     await syncUserAuthState(currentUser);
+
+    // Automatically record Firebase authenticated user session in database
+    try {
+      const token = await currentUser.getIdToken(false);
+      if (token && currentUser.email) {
+        fetch('/api/users/sync', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            uid: currentUser.uid,
+            email: currentUser.email,
+            displayName: currentUser.displayName || null
+          })
+        }).catch(() => {});
+      }
+    } catch (_) {}
   });
 }
 

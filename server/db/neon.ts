@@ -95,6 +95,10 @@ export async function ensureDatabaseSchema(): Promise<void> {
         created_at timestamptz DEFAULT now()
       );
 
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name text;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS photo_url text;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at timestamptz DEFAULT now();
+
       CREATE TABLE IF NOT EXISTS subscribers (
         id bigserial PRIMARY KEY,
         email text UNIQUE NOT NULL,
