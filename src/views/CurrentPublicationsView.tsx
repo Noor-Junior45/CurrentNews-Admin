@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuthState } from '../hooks/useAuthState';
+import { auth } from '../firebase';
 import { Post, slugify } from '../types';
 import { cleanImageUrl, sanitizePostImages } from '../utils/imageUrl';
 import { getCompressedStories, removeCompressedStory, getDeletedStoryIds } from '../utils/compressedStorage';
@@ -89,7 +90,8 @@ export default function CurrentPublicationsView(): React.JSX.Element {
   }, []);
 
   const fetchAdminPosts = async () => {
-    if (!user) return;
+    const activeUser = user || auth.currentUser;
+    if (!activeUser) return;
     setFeedLoading(true);
     try {
       const deletedIds = getDeletedStoryIds();
@@ -100,7 +102,7 @@ export default function CurrentPublicationsView(): React.JSX.Element {
         const { ok, data: adminData, error: adminFetchErr } = await adminFetch(`/api/admin/articles?limit=50&t=${Date.now()}`);
         if (ok && Array.isArray(adminData?.articles)) {
           for (const p of adminData.articles) {
-            if (p && p.id && !deletedIds.has(p.id)) {
+            if (p && p.id && !deletedIds.has(p.id) && p.status !== 'archived') {
               postMap.set(p.id, sanitizePostImages(p));
             }
           }
@@ -119,7 +121,7 @@ export default function CurrentPublicationsView(): React.JSX.Element {
             const feedData = await feedRes.json();
             if (Array.isArray(feedData.articles)) {
               for (const p of feedData.articles) {
-                if (p && p.id && !deletedIds.has(p.id)) {
+                if (p && p.id && !deletedIds.has(p.id) && p.status !== 'archived') {
                   postMap.set(p.id, sanitizePostImages(p));
                 }
               }
@@ -135,7 +137,7 @@ export default function CurrentPublicationsView(): React.JSX.Element {
         const compressed = getCompressedStories();
         if (compressed && compressed.length > 0) {
           for (const p of compressed) {
-            if (p && p.id && !deletedIds.has(p.id)) {
+            if (p && p.id && !deletedIds.has(p.id) && p.status !== 'archived') {
               if (!postMap.has(p.id)) {
                 postMap.set(p.id, sanitizePostImages(p));
               }
@@ -151,19 +153,19 @@ export default function CurrentPublicationsView(): React.JSX.Element {
       });
 
       const visiblePosts = allFetched.filter(p => {
-        if (!p || !p.id || deletedIds.has(p.id)) return false;
+        if (!p || !p.id || deletedIds.has(p.id) || p.status === 'archived') return false;
 
         // All published data and drafts must be visible to admin
         if (isAdmin) return true;
 
         // Non-admin writers see their own dispatches
-        if (p.authorEmail && user.email) {
-          return p.authorEmail.toLowerCase() === user.email.toLowerCase();
+        if (p.authorEmail && activeUser.email) {
+          return p.authorEmail.toLowerCase() === activeUser.email.toLowerCase();
         }
-        if (p.authorId && user.uid) {
-          return p.authorId === user.uid;
+        if (p.authorId && activeUser.uid) {
+          return p.authorId === activeUser.uid;
         }
-        const penName = (localStorage.getItem(`current_news_pen_name_${user.uid}`) || '').toLowerCase();
+        const penName = (localStorage.getItem(`current_news_pen_name_${activeUser.uid}`) || '').toLowerCase();
         if (p.authorName && penName && p.authorName.toLowerCase() === penName) {
           return true;
         }
@@ -178,15 +180,30 @@ export default function CurrentPublicationsView(): React.JSX.Element {
   };
 
   useEffect(() => {
-    if (user && isAdmin) {
+    const activeUser = user || auth.currentUser;
+    if (activeUser) {
       fetchAdminPosts();
     }
-    const handleStoriesUpdated = () => {
+    const handleStoriesUpdated = (e?: any) => {
+      const deletedId = e?.detail?.deletedId;
+      const newPost = e?.detail?.newPost;
+      if (deletedId) {
+        setPosts(prev => prev.filter(p => p.id !== deletedId));
+      }
+      if (newPost && newPost.id && newPost.status !== 'archived') {
+        setPosts(prev => {
+          const sanitized = sanitizePostImages(newPost);
+          const filtered = prev.filter(p => p.id !== newPost.id);
+          return [sanitized, ...filtered];
+        });
+      }
       fetchAdminPosts();
     };
     window.addEventListener('stories-updated', handleStoriesUpdated);
+    window.addEventListener('storage', handleStoriesUpdated);
     return () => {
       window.removeEventListener('stories-updated', handleStoriesUpdated);
+      window.removeEventListener('storage', handleStoriesUpdated);
     };
   }, [user, isAdmin]);
 
@@ -194,10 +211,14 @@ export default function CurrentPublicationsView(): React.JSX.Element {
     setErrorMsg(null);
     setSuccessMsg(null);
     try {
-      // 1. Immediately remove from local compressed memory and mark tombstone
+      // 1. Immediately update view state so counts decrease at 0ms
+      setPosts(prev => prev.filter(p => p.id !== id));
+      setDeleteConfirmId(null);
+
+      // 2. Immediately remove from local compressed memory and mark tombstone
       removeCompressedStory(id);
 
-      // 2. Remove from backend server and editorial repository with Bearer token
+      // 3. Remove from backend server and editorial repository with Bearer token
       const { ok, error: deleteErr } = await adminFetch(`/api/admin/articles/${id}`, {
         method: 'DELETE'
       });
@@ -206,16 +227,14 @@ export default function CurrentPublicationsView(): React.JSX.Element {
         throw new Error(deleteErr || 'Failed to delete post');
       }
 
-      // 3. Update view state
-      setPosts(prev => prev.filter(p => p.id !== id));
       setSuccessMsg('Story deleted successfully from storage repository.');
-      setDeleteConfirmId(null);
 
       // 4. Notify all tabs and home view to remove immediately
       window.dispatchEvent(new CustomEvent('stories-updated', { detail: { deletedId: id } }));
     } catch (err: any) {
       console.error(err);
       setErrorMsg(err.message || 'Failed to delete story. Permissions check required.');
+      fetchAdminPosts();
     }
   };
 
@@ -236,7 +255,12 @@ export default function CurrentPublicationsView(): React.JSX.Element {
     }
   };
 
-  const filteredPosts = posts.filter(post => {
+  const nonArchivedPosts = posts.filter(p => p && p.id && p.status !== 'archived');
+  const allCount = nonArchivedPosts.length;
+  const publishedCount = nonArchivedPosts.filter(p => p.status === 'published').length;
+  const draftsCount = nonArchivedPosts.filter(p => p.status === 'draft').length;
+
+  const filteredPosts = nonArchivedPosts.filter(post => {
     if (pubListFilter === 'published') return post.status === 'published';
     if (pubListFilter === 'drafts') return post.status === 'draft';
     return true;
@@ -286,9 +310,7 @@ export default function CurrentPublicationsView(): React.JSX.Element {
                         ? 'bg-indigo-100/90 text-indigo-800 dark:bg-indigo-900/60 dark:text-indigo-200'
                         : 'bg-[#ebdcd0] text-[#3d332a] dark:bg-slate-700 dark:text-slate-200'
                     }`}>
-                      {mode === 'all' && posts.length}
-                      {mode === 'published' && posts.filter(p => p.status === 'published').length}
-                      {mode === 'drafts' && posts.filter(p => p.status === 'draft').length}
+                      ({mode === 'all' ? allCount : mode === 'published' ? publishedCount : draftsCount})
                     </span>
                   </button>
                 ))}

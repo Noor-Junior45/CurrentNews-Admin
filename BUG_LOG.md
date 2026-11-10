@@ -325,5 +325,12 @@
     2. In `src/utils/brandLogo.ts`, set `CURRENT_NEWS_LOGO = CURRENT_NEWS_LOGO_DATA_URI` as the primary logo source, rendering the emblem with zero network latency, zero CORS/CORP dependencies, and zero 404 risk across all iframes, subdomains, and offline states.
     3. In `server.ts`, added high-priority route matchers for `/assets/CurrentNews.png`, `/assets/currentnews.png`, and regex `/^\/assets\/CurrentNews-.*\.png$/i` with explicit `Cross-Origin-Resource-Policy: cross-origin`, `Access-Control-Allow-Origin: *`, and `Cache-Control` headers.
 
-
-
+- [x] **Bug ID & Summary:** BUG-064 — Publication Page Category Counters (`All` and `Published`) Not Updating on Article Addition / Deletion.
+  - **Root Cause:**
+    1. In `server/api/adminArticles.ts`, `handleAdminGetArticles` lacked a default `status != 'archived'` filter when no explicit status query parameter was sent, causing archived (deleted) articles in Neon PostgreSQL to be returned to the client.
+    2. In `CurrentPublicationsView.tsx`, `visiblePosts` filtering evaluated `if (isAdmin) return true;` without checking `p.status !== 'archived'`, resurrecting deleted posts into the active count.
+    3. `handleDeletePost` waited for network response before updating view state, causing UI lag, and `CurrentPublicationsView` only re-fetched on `[user, isAdmin]` without syncing across cross-tab storage changes or optimistic event details.
+  - **Permanent Guardrail:**
+    1. In `server/api/adminArticles.ts`, permanently exclude `status != 'archived'` whenever `statusParam !== 'archived'`.
+    2. In `CurrentPublicationsView.tsx`, compute `allCount = nonArchivedPosts.length`, `publishedCount = nonArchivedPosts.filter(p => p.status === 'published').length`, and `draftsCount = nonArchivedPosts.filter(p => p.status === 'draft').length`.
+    3. Added 0ms optimistic UI filtering in `handleDeletePost`, updated `stories-updated` handler to immediately apply optimistic additions and deletions, and added `storage` window listener to react to multi-tab updates.

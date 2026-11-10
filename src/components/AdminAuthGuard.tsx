@@ -18,8 +18,8 @@ export default function AdminAuthGuard({ children }: AdminAuthGuardProps): React
 
   // Synchronously evaluate SDK current user if state update is in-flight
   const activeUser = user || auth.currentUser;
-  const isOwner = activeUser?.email === 'team@currentnews.blog' || activeUser?.email === 'admin@currentnews.blog';
-  const hasAdminPrivileges = isAdmin || isOwner;
+  // Role claim check only — never an email comparison
+  const hasAdminPrivileges = isAdmin;
 
   // 1. Loading screen: only if initial SDK loading with no user session
   if (loading && !activeUser) {

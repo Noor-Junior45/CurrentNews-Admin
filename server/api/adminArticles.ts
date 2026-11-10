@@ -717,8 +717,10 @@ export async function handleAdminGetArticles(req: Request, res: Response) {
         params.push(statusParam);
       } else if (statusParam === 'live' || statusParam === 'published_only') {
         conditions.push(`status = 'published'`);
+      } else {
+        // Exclude archived/deleted articles by default
+        conditions.push(`status != 'archived'`);
       }
-      // If statusParam is empty or 'all', all statuses (published, draft, archived) are returned
 
       // Cursor pagination (by updated_at DESC, id DESC)
       if (cursor) {

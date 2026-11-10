@@ -9,6 +9,13 @@
     <script>
       (function() {
         try {
+          var host = (window.location && window.location.hostname) ? window.location.hostname.toLowerCase() : '';
+          var isPreviewHost = host.indexOf('run.app') !== -1 && 
+                              host.indexOf('currentnews.blog') === -1 && 
+                              host.indexOf('currentnews-hub.cloud.run') === -1;
+          if (!isPreviewHost) {
+            return;
+          }
           var OrigWS = window.WebSocket;
           if (OrigWS) {
             function FakeViteWS(url, protocols) {

@@ -364,8 +364,17 @@
   - In `server.ts`, added high-priority route matchers for `/assets/CurrentNews.png` and regex `/^\/assets\/CurrentNews-.*\.png$/i` with `Cross-Origin-Resource-Policy: cross-origin` and `Access-Control-Allow-Origin: *`.
   - Rebuilt production bundle (`npm run build`), verified `compile_applet` and `lint_applet` passed with 0 errors, and restarted dev server.
 
+- **Phase 49 (Role-Claim Auth Guard, Scoped Dev WebSocket Shim, & Reactive Publication Counters):** [COMPLETED]
+  - `AdminAuthGuard.tsx`: Removed `isOwner` email check; `hasAdminPrivileges` strictly equals `isAdmin` (role claim only).
+  - `SignInView.tsx`: Explicitly documented `ADMIN_ACCESS_EMAIL` as purely a display/contact label for mailto access requests, never used for granting authorization.
+  - `index.html`: Wrapped WebSocket and unhandled rejection shield to run exclusively when hostname includes `"run.app"` preview hosts and NEVER on `currentnews.blog` or `currentnews-hub.cloud.run`.
+  - `server/api/adminArticles.ts`: Defaulted `handleAdminGetArticles` to `status != 'archived'`, preventing soft-deleted articles from inflating counts.
+  - `CurrentPublicationsView.tsx`: Computed clean `allCount`, `publishedCount`, and `draftsCount` excluding archived records, applied 0ms optimistic updates on article deletion, added real-time listeners for `stories-updated` and multi-tab `storage` events, and rendered exact parenthesized counters on `All (${allCount})` and `Published (${publishedCount})`.
+  - Rebuilt production bundle (`npm run build`), verified `compile_applet` and `lint_applet` passed with 0 errors.
+
 ## 4. Immediate Next Step
-- Authenticate into the live Current News Admin portal using staff credentials (`team@currentnews.blog` / `admin@currentnews.blog`).
+- Admin editorial desk active and verified on Cloud Run container runtime.
+
 
 
 

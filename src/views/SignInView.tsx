@@ -13,6 +13,7 @@ import { updateDocumentSEO } from '../utils/seo';
 import { adminFetch } from '../utils/adminFetch';
 import { CURRENT_NEWS_LOGO, handleLogoError } from '../utils/brandLogo';
 
+// Display/contact label only for editorial role applications — NEVER used to grant access privileges
 const ADMIN_ACCESS_EMAIL = 'team@currentnews.blog';
 const ACCESS_REQUEST_SUBJECT = encodeURIComponent('Admin / Writer Access Request — Current News Editorial Desk');
 const ACCESS_REQUEST_BODY = encodeURIComponent(
