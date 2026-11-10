@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
+import { query, isNeonConfigured } from '../server/db/neon.ts';
 
 export default async function handler(req: Request, res: Response) {
   if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -19,46 +20,122 @@ export default async function handler(req: Request, res: Response) {
     const host = req.headers.host || 'www.currentnews.blog';
     const siteUrl = `${protocol}://${host.includes('localhost') ? host : 'www.currentnews.blog'}`;
 
-    // Configuration extracted dynamically from env or firebase-applet-config.json
-    let projectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || '';
-    let firestoreDatabaseId = process.env.FIRESTORE_DATABASE_ID || process.env.VITE_FIREBASE_DATABASE_ID || '';
+    let items: any[] = [];
 
-    try {
-      const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
-      if (fs.existsSync(configPath)) {
-        const cfg = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-        projectId = projectId || cfg.projectId || '';
-        firestoreDatabaseId = firestoreDatabaseId || cfg.firestoreDatabaseId || '(default)';
+    // 1. Fetch published articles from Neon PostgreSQL (primary system-of-record)
+    if (isNeonConfigured()) {
+      try {
+        const dbRes = await query<{
+          id: string;
+          slug: string | null;
+          title: string;
+          content: string;
+          category: string | null;
+          author_name: string | null;
+          created_at: string;
+          published_at: string | null;
+        }>(
+          `SELECT id, slug, title, content, category, author_name, created_at, published_at
+           FROM articles
+           WHERE status = 'published'
+           ORDER BY COALESCE(published_at, created_at) DESC
+           LIMIT 25`
+        );
+        if (dbRes.rows && dbRes.rows.length > 0) {
+          items = dbRes.rows.map(r => ({
+            id: r.id,
+            slug: r.slug,
+            title: r.title,
+            content: r.content,
+            category: r.category,
+            authorName: r.author_name,
+            createdAt: r.published_at || r.created_at,
+          }));
+        }
+      } catch (dbErr) {
+        console.warn('[RSS] Neon articles query notice:', dbErr);
       }
-    } catch (_) {}
-
-    const config = {
-      projectId: projectId || '(default)',
-      firestoreDatabaseId: firestoreDatabaseId || '(default)'
-    };
-
-    const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${config.projectId}/databases/${config.firestoreDatabaseId}/documents:runQuery`;
-    
-    const queryBody = {
-      structuredQuery: {
-        from: [{ collectionId: "posts" }],
-        orderBy: [{ field: { fieldPath: "createdAt" }, direction: "DESCENDING" }],
-        limit: 20
-      }
-    };
-
-    const response = await fetch(firestoreUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(queryBody)
-    });
-
-    if (!response.ok) {
-      throw new Error(`Firestore REST query returned HTTP status ${response.status}`);
     }
 
-    const queryResult = await response.json();
-    
+    // 2. Fallback to Firestore REST if Neon is empty or not configured
+    if (items.length === 0) {
+      try {
+        // Configuration extracted dynamically from env or firebase-applet-config.json
+        let projectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || '';
+        let firestoreDatabaseId = process.env.FIRESTORE_DATABASE_ID || process.env.VITE_FIREBASE_DATABASE_ID || '';
+
+        try {
+          const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+          if (fs.existsSync(configPath)) {
+            const cfg = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+            projectId = projectId || cfg.projectId || '';
+            firestoreDatabaseId = firestoreDatabaseId || cfg.firestoreDatabaseId || '(default)';
+          }
+        } catch (_) {}
+
+        const config = {
+          projectId: projectId || '(default)',
+          firestoreDatabaseId: firestoreDatabaseId || '(default)'
+        };
+
+        const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${config.projectId}/databases/${config.firestoreDatabaseId}/documents:runQuery`;
+        const queryBody = {
+          structuredQuery: {
+            from: [{ collectionId: "posts" }],
+            orderBy: [{ field: { fieldPath: "createdAt" }, direction: "DESCENDING" }],
+            limit: 20
+          }
+        };
+
+        const response = await fetch(firestoreUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(queryBody)
+        });
+
+        if (response.ok) {
+          const queryResult = await response.json();
+          const parseFirestoreFields = (fields: any) => {
+            const result: any = {};
+            if (!fields) return result;
+            for (const key of Object.keys(fields)) {
+              const valObj = fields[key];
+              if ('stringValue' in valObj) {
+                result[key] = valObj.stringValue;
+              } else if ('timestampValue' in valObj) {
+                result[key] = valObj.timestampValue;
+              } else if ('integerValue' in valObj) {
+                result[key] = parseInt(valObj.integerValue, 10);
+              } else if ('booleanValue' in valObj) {
+                result[key] = valObj.booleanValue;
+              } else if ('mapValue' in valObj) {
+                result[key] = parseFirestoreFields(valObj.mapValue.fields);
+              } else {
+                result[key] = Object.values(valObj)[0];
+              }
+            }
+            return result;
+          };
+
+          if (Array.isArray(queryResult)) {
+            for (const item of queryResult) {
+              if (item.document) {
+                const fields = parseFirestoreFields(item.document.fields);
+                const id = item.document.name.split("/").pop();
+                if (!fields.status || fields.status === 'published') {
+                  items.push({ id, ...fields });
+                }
+              }
+            }
+          }
+        } else {
+          console.warn(`[RSS] Firestore fallback request returned non-OK status: ${response.status}`);
+        }
+      } catch (fsErr) {
+        console.warn('[RSS] Firestore fallback notice:', fsErr);
+      }
+    }
+
     // XML safety/escaping helper
     const escapeXml = (unsafe: string) => {
       return (unsafe || '')
@@ -69,39 +146,9 @@ export default async function handler(req: Request, res: Response) {
         .replace(/'/g, '&apos;');
     };
 
-    // Raw Firestore REST Value mapping helper
-    const parseFirestoreFields = (fields: any) => {
-      const result: any = {};
-      if (!fields) return result;
-      for (const key of Object.keys(fields)) {
-        const valObj = fields[key];
-        if ('stringValue' in valObj) {
-          result[key] = valObj.stringValue;
-        } else if ('timestampValue' in valObj) {
-          result[key] = valObj.timestampValue;
-        } else if ('integerValue' in valObj) {
-          result[key] = parseInt(valObj.integerValue, 10);
-        } else if ('booleanValue' in valObj) {
-          result[key] = valObj.booleanValue;
-        } else if ('mapValue' in valObj) {
-          result[key] = parseFirestoreFields(valObj.mapValue.fields);
-        } else {
-          result[key] = Object.values(valObj)[0];
-        }
-      }
-      return result;
+    const sanitizeCData = (unsafe: string) => {
+      return (unsafe || '').replace(/\]\]>/g, ']]]]><![CDATA[>');
     };
-
-    const items: any[] = [];
-    if (Array.isArray(queryResult)) {
-      for (const item of queryResult) {
-        if (item.document) {
-          const fields = parseFirestoreFields(item.document.fields);
-          const id = item.document.name.split("/").pop();
-          items.push({ id, ...fields });
-        }
-      }
-    }
 
     // Build XML conformant RSS channel data
     let xml = `<?xml version="1.0" encoding="UTF-8" ?>
@@ -143,7 +190,7 @@ export default async function handler(req: Request, res: Response) {
     <pubDate>${pubDate}</pubDate>
     <author>${escapeXml(author)}</author>
     <category>${escapeXml(category)}</category>
-    <description><![CDATA[${rawContent}]]></description>
+    <description><![CDATA[${sanitizeCData(rawContent)}]]></description>
   </item>
 `;
     }

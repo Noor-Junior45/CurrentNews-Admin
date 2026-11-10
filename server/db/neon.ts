@@ -88,7 +88,7 @@ export async function ensureDatabaseSchema(): Promise<void> {
       CREATE TABLE IF NOT EXISTS users (
         uid text PRIMARY KEY,
         email text UNIQUE NOT NULL,
-        role text DEFAULT 'admin',
+        role text DEFAULT 'writer',
         display_name text,
         photo_url text,
         last_login_at timestamptz DEFAULT now(),

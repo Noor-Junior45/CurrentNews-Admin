@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
+import { query, isNeonConfigured } from '../server/db/neon.ts';
 
 export default async function handler(req: Request, res: Response) {
   if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -20,76 +21,113 @@ export default async function handler(req: Request, res: Response) {
     const host = req.headers.host || 'www.currentnews.blog';
     const siteUrl = `${protocol}://${host.includes('localhost') ? host : 'www.currentnews.blog'}`;
 
-    // Configuration extracted dynamically from env or firebase-applet-config.json
-    let projectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || '';
-    let firestoreDatabaseId = process.env.FIRESTORE_DATABASE_ID || process.env.VITE_FIREBASE_DATABASE_ID || '';
-
-    try {
-      const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
-      if (fs.existsSync(configPath)) {
-        const cfg = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-        projectId = projectId || cfg.projectId || '';
-        firestoreDatabaseId = firestoreDatabaseId || cfg.firestoreDatabaseId || '(default)';
-      }
-    } catch (_) {}
-
-    const config = {
-      projectId: projectId || '(default)',
-      firestoreDatabaseId: firestoreDatabaseId || '(default)'
-    };
-
-    const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${config.projectId}/databases/${config.firestoreDatabaseId}/documents:runQuery`;
-
-    const queryBody = {
-      structuredQuery: {
-        from: [{ collectionId: "posts" }],
-        orderBy: [{ field: { fieldPath: "createdAt" }, direction: "DESCENDING" }]
-      }
-    };
-
     let items: any[] = [];
-    try {
-      const response = await fetch(firestoreUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(queryBody)
-      });
 
-      if (response.ok) {
-        const queryResult = await response.json();
-        const parseFirestoreFields = (fields: any) => {
-          const result: any = {};
-          if (!fields) return result;
-          for (const key of Object.keys(fields)) {
-            const valObj = fields[key];
-            if ('stringValue' in valObj) {
-              result[key] = valObj.stringValue;
-            } else if ('timestampValue' in valObj) {
-              result[key] = valObj.timestampValue;
-            } else if ('integerValue' in valObj) {
-              result[key] = parseInt(valObj.integerValue, 10);
-            } else if ('booleanValue' in valObj) {
-              result[key] = valObj.booleanValue;
-            }
+    // 1. Fetch published articles from Neon PostgreSQL (primary system-of-record)
+    if (isNeonConfigured()) {
+      try {
+        const dbRes = await query<{
+          id: string;
+          slug: string | null;
+          title: string;
+          content: string;
+          category: string | null;
+          created_at: string;
+          updated_at: string;
+          published_at: string | null;
+        }>(
+          `SELECT id, slug, title, content, category, created_at, updated_at, published_at
+           FROM articles
+           WHERE status = 'published'
+           ORDER BY COALESCE(published_at, created_at) DESC
+           LIMIT 100`
+        );
+        if (dbRes.rows && dbRes.rows.length > 0) {
+          items = dbRes.rows.map(r => ({
+            id: r.id,
+            slug: r.slug,
+            title: r.title,
+            content: r.content,
+            category: r.category,
+            createdAt: r.published_at || r.created_at,
+            updatedAt: r.updated_at,
+            status: 'published'
+          }));
+        }
+      } catch (dbErr) {
+        console.warn('[Sitemap] Neon articles query notice:', dbErr);
+      }
+    }
+
+    // 2. Fallback to Firestore REST if Neon is empty or not configured
+    if (items.length === 0) {
+      try {
+        let projectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || '';
+        let firestoreDatabaseId = process.env.FIRESTORE_DATABASE_ID || process.env.VITE_FIREBASE_DATABASE_ID || '';
+
+        try {
+          const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+          if (fs.existsSync(configPath)) {
+            const cfg = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+            projectId = projectId || cfg.projectId || '';
+            firestoreDatabaseId = firestoreDatabaseId || cfg.firestoreDatabaseId || '(default)';
           }
-          return result;
+        } catch (_) {}
+
+        const config = {
+          projectId: projectId || '(default)',
+          firestoreDatabaseId: firestoreDatabaseId || '(default)'
         };
 
-        if (Array.isArray(queryResult)) {
-          for (const item of queryResult) {
-            if (item.document) {
-              const fields = parseFirestoreFields(item.document.fields);
-              const id = item.document.name.split("/").pop();
-              // Only include published posts
-              if (!fields.status || fields.status === 'published') {
-                items.push({ id, ...fields });
+        const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${config.projectId}/databases/${config.firestoreDatabaseId}/documents:runQuery`;
+        const queryBody = {
+          structuredQuery: {
+            from: [{ collectionId: "posts" }],
+            orderBy: [{ field: { fieldPath: "createdAt" }, direction: "DESCENDING" }]
+          }
+        };
+
+        const response = await fetch(firestoreUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(queryBody)
+        });
+
+        if (response.ok) {
+          const queryResult = await response.json();
+          const parseFirestoreFields = (fields: any) => {
+            const result: any = {};
+            if (!fields) return result;
+            for (const key of Object.keys(fields)) {
+              const valObj = fields[key];
+              if ('stringValue' in valObj) {
+                result[key] = valObj.stringValue;
+              } else if ('timestampValue' in valObj) {
+                result[key] = valObj.timestampValue;
+              } else if ('integerValue' in valObj) {
+                result[key] = parseInt(valObj.integerValue, 10);
+              } else if ('booleanValue' in valObj) {
+                result[key] = valObj.booleanValue;
+              }
+            }
+            return result;
+          };
+
+          if (Array.isArray(queryResult)) {
+            for (const item of queryResult) {
+              if (item.document) {
+                const fields = parseFirestoreFields(item.document.fields);
+                const id = item.document.name.split("/").pop();
+                if (!fields.status || fields.status === 'published') {
+                  items.push({ id, ...fields });
+                }
               }
             }
           }
         }
+      } catch (fetchErr) {
+        console.warn('Failed to fetch posts for sitemap from Firestore REST, using fallback:', fetchErr);
       }
-    } catch (fetchErr) {
-      console.warn('Failed to fetch posts for sitemap from Firestore REST, using fallback:', fetchErr);
     }
 
     const escapeXml = (unsafe: string) => {

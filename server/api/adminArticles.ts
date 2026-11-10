@@ -404,14 +404,14 @@ export async function handleAdminCreateOrUpdateArticle(req: Request, res: Respon
             console.error('[Admin API] Neon insert retry error:', retryErr);
             return res.status(500).json({
               success: false,
-              error: 'Database insert failed on slug retry: ' + (retryErr?.message || 'Unique constraint error')
+              error: 'Database insert failed on slug retry. Please try again.'
             });
           }
         } else {
           console.error('[Admin API] Neon insert error:', err);
           return res.status(500).json({
             success: false,
-            error: 'Database insert failed: ' + (err?.message || 'Internal error')
+            error: 'Database insert failed. Please try again.'
           });
         }
       }
@@ -513,14 +513,14 @@ export async function handleAdminCreateOrUpdateArticle(req: Request, res: Respon
             console.error('[Admin API] Neon update retry error:', retryErr);
             return res.status(500).json({
               success: false,
-              error: 'Database update failed on slug retry: ' + (retryErr?.message || 'Unique constraint error')
+              error: 'Database update failed on slug retry. Please try again.'
             });
           }
         } else {
           console.error('[Admin API] Neon update error:', err);
           return res.status(500).json({
             success: false,
-            error: 'Database update failed: ' + (err?.message || 'Internal error')
+            error: 'Database update failed. Please try again.'
           });
         }
       }
@@ -633,7 +633,7 @@ export async function handleAdminCreateOrUpdateArticle(req: Request, res: Respon
     galleryPositions: data.galleryPositions,
     authorId: user.uid,
     authorName,
-    authorEmail: user.email || '',
+    authorEmail: '',
     status: data.status,
     version: neonArticle?.version ?? (isUpdate ? (data.version ? data.version + 1 : 2) : 1),
     createdAt: (neonArticle?.createdAt) ?? (adminCreatedAt ? adminCreatedAt.toISOString() : now.toISOString()),
@@ -1017,10 +1017,29 @@ export async function handleAdminSyncUser(req: Request, res: Response) {
     return res.status(401).json({ success: false, error: 'Unauthorized', code: 'no_token' });
   }
 
-  const email = (req.body?.email || req.user.email || '').trim().toLowerCase();
-  const uid = req.body?.uid || req.user.uid;
-  const role = (req.body?.role || req.user.role) === 'writer' ? 'writer' : 'admin';
-  const displayName = req.body?.displayName || req.user.name || null;
+  // Prevent role escalation & IDOR: non-admins cannot override uid, email, or role.
+  // When an admin syncs a differing target uid, require an explicit email and role.
+  const isAdmin = req.user.role === 'admin';
+  const targetUid = req.body?.uid ? String(req.body.uid).trim() : '';
+  const isTargetingOther = isAdmin && targetUid && targetUid !== req.user.uid;
+
+  let uid = req.user.uid;
+  let email = (req.user.email || '').trim().toLowerCase();
+  let role: 'admin' | 'writer' = req.user.role === 'admin' ? 'admin' : 'writer';
+
+  if (isTargetingOther) {
+    if (!req.body?.email || !req.body?.role) {
+      return res.status(400).json({
+        success: false,
+        error: 'Explicit target email and role are required when overriding another user record'
+      });
+    }
+    uid = targetUid;
+    email = String(req.body.email).trim().toLowerCase();
+    role = req.body.role === 'admin' ? 'admin' : 'writer';
+  }
+
+  const displayName = req.body?.displayName || (uid === req.user.uid ? req.user.name : null) || null;
 
   if (!email || !uid) {
     return res.status(400).json({ success: false, error: 'User UID and email are required' });

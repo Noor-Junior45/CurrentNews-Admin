@@ -13,20 +13,10 @@ export const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:alerts@current
 
 let pushEnabled = false;
 
-// If VAPID keys are missing from environment, generate a resilient fallback keypair
-// so WebPush & browser notifications never enter a disabled state.
+// If VAPID keys are missing from environment, log a clear error and disable push.
 if (!VAPID_PUBLIC_KEY_RAW || !VAPID_PRIVATE_KEY_RAW) {
-  try {
-    const generated = webpush.generateVAPIDKeys();
-    VAPID_PUBLIC_KEY_RAW = generated.publicKey;
-    VAPID_PRIVATE_KEY_RAW = generated.privateKey;
-    console.warn('[Push Service] VAPID keys were unset in environment — initialized dynamic keypair for active dispatch.');
-  } catch (genErr) {
-    console.error('[Push Service] Dynamic VAPID generation error:', genErr);
-  }
-}
-
-if (VAPID_PUBLIC_KEY_RAW && VAPID_PRIVATE_KEY_RAW) {
+  console.error('[Push Service] VAPID keys missing from environment (VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY). Push notifications are disabled.');
+} else {
   try {
     webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY_RAW, VAPID_PRIVATE_KEY_RAW);
     pushEnabled = true;
@@ -181,6 +171,22 @@ export async function handleSubscribe(req: Request, res: Response) {
         success: false,
         error: 'Missing device token or subscription endpoint',
       });
+    }
+
+    const isUrl = endpoint.startsWith('http://') || endpoint.startsWith('https://');
+    if (isUrl) {
+      const valError = validateSubscription({ endpoint, keys: { p256dh, auth: authKey } });
+      if (valError) {
+        return res.status(400).json({ success: false, error: valError });
+      }
+    } else {
+      // Raw FCM device token validation
+      if (endpoint.length > 500 || !/^[A-Za-z0-9_\-:]+$/.test(endpoint)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid device token format or exceeds 500 characters',
+        });
+      }
     }
 
     const ua: string = typeof body.userAgent === 'string'

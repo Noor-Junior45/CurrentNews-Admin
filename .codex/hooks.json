@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/.gsd-path/guard_hook.py\" 2>/dev/null || python \"$(git rev-parse --show-toplevel)/.gsd-path/guard_hook.py\" 2>/dev/null || exit 2",
+            "commandWindows": "powershell.exe -NoProfile -NonInteractive -Command \"$root = git rev-parse --show-toplevel; $script = Join-Path $root '.gsd-path\\guard_hook.py'; if (Get-Command python3 -ErrorAction SilentlyContinue) { & python3 $script } elseif (Get-Command python -ErrorAction SilentlyContinue) { & python $script } else { exit 2 }\""
+          }
+        ]
+      }
+    ]
+  }
+}

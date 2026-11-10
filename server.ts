@@ -55,7 +55,7 @@ const asyncHandler = (handler: any) => {
     } catch (error: any) {
       console.error('Error in route handler:', error);
       if (!res.headersSent) {
-        res.status(500).send(error?.message || 'Internal Server Error');
+        res.status(500).send('Internal Server Error');
       }
     }
   };
@@ -473,9 +473,10 @@ async function startServer() {
   app.use('/api', (err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     console.error('[Unhandled API Error]:', err);
     if (!res.headersSent) {
-      res.status(err.status || 500).json({
+      const status = err.status || 500;
+      res.status(status).json({
         success: false,
-        error: err.message || 'Internal API Server Error',
+        error: status < 500 ? (err.message || 'API Error') : 'Internal API Server Error',
       });
     }
   });
