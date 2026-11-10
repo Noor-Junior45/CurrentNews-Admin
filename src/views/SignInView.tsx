@@ -13,7 +13,7 @@ import { updateDocumentSEO } from '../utils/seo';
 import { adminFetch } from '../utils/adminFetch';
 import { CURRENT_NEWS_LOGO, handleLogoError } from '../utils/brandLogo';
 
-const ADMIN_ACCESS_EMAIL = 'admin@currentnews.blog';
+const ADMIN_ACCESS_EMAIL = 'team@currentnews.blog';
 const ACCESS_REQUEST_SUBJECT = encodeURIComponent('Admin / Writer Access Request — Current News Editorial Desk');
 const ACCESS_REQUEST_BODY = encodeURIComponent(
   `CURRENT NEWS — EDITORIAL ACCESS APPLICATION\n` +
@@ -30,6 +30,7 @@ const ACCESS_REQUEST_BODY = encodeURIComponent(
   `Please note: Once submitted, our editorial administration team will review and verify your application credentials. Upon successful verification, your assigned editorial role will be activated and confirmed to you.`
 );
 const ACCESS_REQUEST_MAILTO = `mailto:${ADMIN_ACCESS_EMAIL}?subject=${ACCESS_REQUEST_SUBJECT}&body=${ACCESS_REQUEST_BODY}`;
+
 
 export default function SignInView(): React.JSX.Element {
   const navigate = useNavigate();
@@ -424,6 +425,8 @@ export default function SignInView(): React.JSX.Element {
                 </>
               )}
             </button>
+
+
           </div>
         </form>
 

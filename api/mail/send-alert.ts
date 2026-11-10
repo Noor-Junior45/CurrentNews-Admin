@@ -21,7 +21,7 @@ async function sendResendEmail(toEmail: string, subject: string, htmlContent: st
       subject: subject,
       html: htmlContent,
       text: textContent,
-      reply_to: 'Current News <support@guashoomin.resend.app>'
+      reply_to: 'Current News Support <help@currentnews.blog>'
     })
   });
 

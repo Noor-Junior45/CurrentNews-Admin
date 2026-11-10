@@ -26,11 +26,6 @@ function ScrollToTop() {
   return null;
 }
 
-const isDevPreview = typeof window !== 'undefined' && (
-  window.location.hostname.includes('run.app') ||
-  window.location.hostname === 'localhost' ||
-  window.location.hostname === '127.0.0.1'
-);
 
 export default function App() {
   return (
@@ -39,8 +34,8 @@ export default function App() {
       <div className="flex flex-col min-h-screen bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 overflow-x-clip" id="app-root-container">
         <main className="flex-grow">
           <Routes>
-            {/* 1. Root landing: In AI Studio preview, load the Editorial UI directly; in production, serve SignInView */}
-            <Route path="/" element={isDevPreview ? <Navigate to="/admin/publications" replace /> : <SignInView />} />
+            {/* 1. Root landing page: Login / Editorial Authentication Portal */}
+            <Route path="/" element={<SignInView />} />
 
             {/* 2. Persistent Admin Layout with Permanent Navbar & Profile controls */}
             <Route element={<AdminLayout />}>

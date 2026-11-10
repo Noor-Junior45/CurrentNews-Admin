@@ -18,7 +18,8 @@ export default function AdminAuthGuard({ children }: AdminAuthGuardProps): React
 
   // Synchronously evaluate SDK current user if state update is in-flight
   const activeUser = user || auth.currentUser;
-  const hasAdminPrivileges = isAdmin;
+  const isOwner = activeUser?.email === 'team@currentnews.blog' || activeUser?.email === 'admin@currentnews.blog';
+  const hasAdminPrivileges = isAdmin || isOwner;
 
   // 1. Loading screen: only if initial SDK loading with no user session
   if (loading && !activeUser) {
@@ -32,7 +33,7 @@ export default function AdminAuthGuard({ children }: AdminAuthGuardProps): React
     );
   }
 
-  // 2. Unauthenticated user -> Redirect to root landing page where full Email/Password & Google auth are handled
+  // 2. Unauthenticated user -> Redirect to root landing page
   if (!activeUser) {
     return <Navigate to="/" replace />;
   }

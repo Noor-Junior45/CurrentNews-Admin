@@ -114,7 +114,7 @@ export default function AudienceRegistryView(): React.JSX.Element {
 
   const fetchPushCount = async () => {
     try {
-      const res = await adminFetch<{ success?: boolean; count: number }>('/api/push/subscribers-count');
+      const res = await adminFetch<{ success?: boolean; count: number }>('/api/admin/push/subscribers-count');
       if (res.ok && res.data && typeof res.data.count === 'number') {
         setPushDeviceCount(res.data.count);
         return;

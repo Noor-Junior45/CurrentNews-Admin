@@ -504,7 +504,8 @@ export default function PrivacyView() {
               <div className="font-serif font-bold text-base text-[#1C1814] dark:text-white mb-2">
                 Current News Live &bull; Directorate of Legal & Regulatory Affairs
               </div>
-              <p>Official Legal Email: <a href="mailto:support@guashoomin.resend.app" className="text-[#7A5832] dark:text-[#D4AF37] font-bold underline">support@guashoomin.resend.app</a></p>
+              <p>Support &amp; Legal Email: <a href="mailto:help@currentnews.blog" className="text-[#7A5832] dark:text-[#D4AF37] font-bold underline">help@currentnews.blog</a></p>
+              <p>Corporate Affairs: <a href="mailto:team@currentnews.blog" className="text-[#7A5832] dark:text-[#D4AF37] font-bold underline">team@currentnews.blog</a></p>
               <p>Newsroom Corrections: <span className="font-bold">corrections@currentnews.blog</span></p>
               <p>Canonical Web Registry: <span className="font-bold">https://www.currentnews.blog/</span></p>
               <p>Android Package Identifier: <span className="font-bold">blog.currentnews.app</span></p>

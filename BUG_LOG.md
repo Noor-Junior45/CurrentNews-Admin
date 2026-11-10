@@ -285,6 +285,45 @@
     4. Updated route authorization to `requireRole('admin', 'writer')` so both administrators and writers can broadcast alerts.
     5. In `AudienceRegistryView.tsx`, extract `data?.error || pingErr` and add an auto-dismiss timer (5s) to `pingFeedback`.
     6. Converted `CURRENT_NEWS_LOGO_SVG` to a valid `data:image/svg+xml;base64` URI and guarded Express static routes to never serve `index.html` for image files.
+- [x] **Bug ID & Summary:** BUG-059 — Worker API Fallback to Admin Host Origin and Mixed Push Route Namespaces.
+  - **Root Cause:**
+    1. In `src/utils/api.ts`, `DEFAULT_API_BASE` defaulted to empty string `''`. When running without an explicit `VITE_API_BASE` build argument, reader API requests (`/push/count`, `/user/pen-name`, `/subscribers`) fell back to the admin origin (`admin.currentnews.blog`), where reader endpoints do not exist.
+    2. `AudienceRegistryView.tsx` called `/api/push/subscribers-count` instead of the standard `/api/admin/push/subscribers-count` route under the admin host namespace.
+  - **Permanent Guardrail:**
+    1. Set `DEFAULT_API_BASE = 'https://api.currentnews.blog'` in `src/utils/api.ts` so all worker requests target the dedicated edge API gateway by default.
+    2. In `Dockerfile`, declared `ARG VITE_API_BASE` and `ENV VITE_API_BASE=$VITE_API_BASE` in the builder stage before `npm run build` to support build-time environment variable overrides.
+    3. Standardized all administrative push requests to `/api/admin/push/...` in `AudienceRegistryView.tsx` and `DraftPublicationView.tsx`, backed by `requireRole('admin')` for broadcast and `requireRole('admin', 'writer')` for subscriber count.
+
+- [x] **Bug ID & Summary:** BUG-060 — UI Blank / Not Loading in AI Studio Dev Preview (`[vite] failed to connect to websocket (Error: WebSocket closed without opened.)`).
+  - **Root Cause:**
+    1. In `server.ts`, `createViteServer` omitted `hmr: false`, and in `vite.config.ts`, `hmr` only disabled when `DISABLE_HMR === 'true'` (which was undefined). Vite's dev client (`/@vite/client`) attempted an HMR WebSocket connection to the Cloud Run proxy domain (`https://ais-dev-*.asia-southeast1.run.app`). Because Cloud Run dev proxies do not route raw WebSockets to Express middleware without a dedicated WS server, the socket closed immediately with an unhandled promise rejection that halted React execution.
+    2. In `server.ts`, the multi-host routing middleware checked `isDevLocal = (!host || host === 'localhost' || ...) && process.env.NODE_ENV !== 'production'`. When loaded in AI Studio preview, `host` was `ais-dev-*.run.app`, which was not `localhost`, causing the dev bypass to fail and exposing preview traffic to production custom-domain restrictions.
+    3. Helmet Content-Security-Policy was active in dev mode and lacked Google Fonts (`fonts.googleapis.com`, `fonts.gstatic.com`) and Google Tag Manager (`googletagmanager.com`), creating CSP violation rejections.
+  - **Permanent Guardrail:**
+    1. In `vite.config.ts`, permanently locked `server: { hmr: false, watch: null, allowedHosts: true }`.
+    2. In `server.ts`, passed `{ server: { middlewareMode: true, hmr: false }, appType: 'custom' }` to `createViteServer`, added explicit `app.use('*', ... vite.transformIndexHtml)` SPA route resolution in dev, and disabled Helmet CSP in development (`process.env.NODE_ENV === 'production' ? { ... } : false`).
+    3. In `index.html`, added a top-level `unhandledrejection` event listener that traps and cancels any WebSocket connection closing events before they can bubble up to the preview container.
+    4. In `server.ts`, replaced `isDevLocal` with `if (process.env.NODE_ENV !== 'production') return next();` to guarantee all preview hosts bypass production host gating.
+
+- [x] **Bug ID & Summary:** BUG-061 — Unconditional Vite 6 `@vite/client` WebSocket Instantiation Bypassing `hmr: false` (`WebSocket closed without opened`).
+  - **Root Cause:** In Vite 6, `/@vite/client` unconditionally instantiates `new WebSocket(..., "vite-hmr")` regardless of `server.hmr: false`. Furthermore, Vite's built-in SPA middleware prepended `/@vite/client` immediately following `<head>`, executing before `<script>` elements in the HTML body could register unhandled rejection listeners. When the Cloud Run dev proxy terminated the socket before it opened, `@vite/client` rejected its internal connection promise with `Error: WebSocket closed without opened.`, halting React mounting in AI Studio.
+  - **Permanent Guardrail:**
+    1. Configured `createViteServer` with `appType: "custom"` so Express middleware exclusively handles HTML serving via `vite.transformIndexHtml`.
+    2. Injected a synchronous `FakeViteWS` socket shim directly after `<head>` (prior to `/@vite/client`). The shim intercepts `new WebSocket(..., 'vite-hmr')` and immediately provides an open fake socket with `readyState = 1 (OPEN)`. Because `@vite/client` checks `let isOpened = socket.readyState === socket.OPEN`, it skips the awaiting connection promise entirely, preventing any network connection attempts or rejection errors.
+    3. Added captured `unhandledrejection` and `error` listeners with `useCapture: true` in `<head>` to unconditionally silence any stray WebSocket events.
+
+- [x] **Bug ID & Summary:** BUG-062 — Complete Bypass of Vite Connect in Dev Preview via Prebuilt `dist/` Serving.
+  - **Root Cause:** Running `vite.middlewares` in containerized dev preview environments forces the browser to evaluate `/@vite/client` and attempt Vite dev server synchronization, creating proxy latency and WebSocket connect retries.
+  - **Permanent Guardrail:** Updated `server.ts` to inspect `fs.existsSync(path.join(process.cwd(), 'dist', 'index.html'))`. When the production `dist/` bundle exists, Express serves static assets directly from `dist/` and delivers `dist/index.html` for all navigation requests, completely bypassing Vite dev server instantiation, `@vite/client` injection, and WebSocket connections.
+
+- [x] **Bug ID & Summary:** BUG-063 — Broken Brand Logo Placeholder in Sign-In View and Admin Bar in Cross-Origin Iframes / Cold Starts.
+  - **Root Cause:**
+    1. `CURRENT_NEWS_LOGO` imported a Vite-bundled asset path (`/assets/CurrentNews-[hash].png`). In cross-origin dev iframes or when assets were loaded before static routes were fully initialized, image requests could fail or be blocked by cross-origin resource policy (CORP) or reverse proxy caching.
+    2. When the initial image failed, `handleLogoError` attempted fallback to `/CurrentNews.png` and `/currentnews.png`, but without inline fallback, slow network requests or browser image error loops resulted in the browser displaying the default alt text placeholder box (`Current News Logo`).
+  - **Permanent Guardrail:**
+    1. Generated `src/assets/logoBase64.ts` encoding the official 512x512 Current News globe emblem as a lossless, zero-network, embedded `data:image/png;base64,...` data URI.
+    2. In `src/utils/brandLogo.ts`, set `CURRENT_NEWS_LOGO = CURRENT_NEWS_LOGO_DATA_URI` as the primary logo source, rendering the emblem with zero network latency, zero CORS/CORP dependencies, and zero 404 risk across all iframes, subdomains, and offline states.
+    3. In `server.ts`, added high-priority route matchers for `/assets/CurrentNews.png`, `/assets/currentnews.png`, and regex `/^\/assets\/CurrentNews-.*\.png$/i` with explicit `Cross-Origin-Resource-Policy: cross-origin`, `Access-Control-Allow-Origin: *`, and `Cache-Control` headers.
 
 
 

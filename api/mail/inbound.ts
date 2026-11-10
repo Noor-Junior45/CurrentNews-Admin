@@ -1,16 +1,16 @@
 import type { Request, Response } from 'express';
 
 export const INBOUND_MAIL_CONFIG = {
-  name: 'Current News',
-  address: 'support@guashoomin.resend.app',
-  formatted: 'Current News <support@guashoomin.resend.app>',
-  mailto: 'mailto:Current%20News%20%3Csupport%40guashoomin.resend.app%3E',
+  name: 'Current News Support',
+  address: 'help@currentnews.blog',
+  formatted: 'Current News Support <help@currentnews.blog>',
+  mailto: 'mailto:Current%20News%20Support%20%3Chelp%40currentnews.blog%3E',
 };
 
 /**
  * Inbound Mail API Function
  * Serves canonical inbound mail configuration and processes inbound webhooks
- * for Current News <support@guashoomin.resend.app>.
+ * for Current News Support <help@currentnews.blog>.
  */
 export default async function handler(req: Request, res: Response) {
   // CORS & Preflight handling

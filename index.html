@@ -5,6 +5,97 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Current News Live — Editorial Desk</title>
     
+    <!-- WebSocket Resilience & Unhandled Rejection Safety Shield for AI Studio Preview -->
+    <script>
+      (function() {
+        try {
+          var OrigWS = window.WebSocket;
+          if (OrigWS) {
+            function FakeViteWS(url, protocols) {
+              var isVite = (typeof protocols === 'string' && (protocols === 'vite-hmr' || protocols === 'vite-ping')) ||
+                           (Array.isArray(protocols) && (protocols.indexOf('vite-hmr') !== -1 || protocols.indexOf('vite-ping') !== -1)) ||
+                           (typeof url === 'string' && (url.indexOf('token=') !== -1 || url.indexOf('vite-hmr') !== -1));
+              if (isVite) {
+                var listeners = {};
+                var fake = {
+                  readyState: 1, // OPEN
+                  OPEN: 1,
+                  CONNECTING: 0,
+                  CLOSING: 2,
+                  CLOSED: 3,
+                  url: url,
+                  protocol: typeof protocols === 'string' ? protocols : 'vite-hmr',
+                  extensions: '',
+                  binaryType: 'blob',
+                  bufferedAmount: 0,
+                  onopen: null,
+                  onclose: null,
+                  onerror: null,
+                  onmessage: null,
+                  send: function() {},
+                  close: function() {},
+                  addEventListener: function(type, fn) {
+                    listeners[type] = listeners[type] || [];
+                    listeners[type].push(fn);
+                    if (type === 'open') {
+                      setTimeout(function() {
+                        try { fn({ type: 'open' }); } catch(e) {}
+                      }, 0);
+                    }
+                  },
+                  removeEventListener: function(type, fn) {
+                    if (listeners[type]) {
+                      listeners[type] = listeners[type].filter(function(l) { return l !== fn; });
+                    }
+                  },
+                  dispatchEvent: function(evt) {
+                    var list = listeners[evt.type] || [];
+                    for (var i = 0; i < list.length; i++) {
+                      try { list[i](evt); } catch(e) {}
+                    }
+                    return true;
+                  }
+                };
+                if (OrigWS.prototype) {
+                  Object.setPrototypeOf(fake, OrigWS.prototype);
+                }
+                setTimeout(function() {
+                  if (typeof fake.onopen === 'function') {
+                    try { fake.onopen({ type: 'open' }); } catch(e) {}
+                  }
+                }, 0);
+                return fake;
+              }
+              return new OrigWS(url, protocols);
+            }
+            FakeViteWS.prototype = OrigWS.prototype;
+            FakeViteWS.CONNECTING = 0;
+            FakeViteWS.OPEN = 1;
+            FakeViteWS.CLOSING = 2;
+            FakeViteWS.CLOSED = 3;
+            window.WebSocket = FakeViteWS;
+          }
+        } catch(e) {}
+
+        window.addEventListener('unhandledrejection', function(event) {
+          if (event && event.reason) {
+            var msg = (event.reason.message || event.reason || '').toString();
+            if (msg.indexOf('WebSocket') !== -1 || msg.indexOf('websocket') !== -1) {
+              event.preventDefault();
+              event.stopPropagation();
+            }
+          }
+        }, true);
+
+        window.addEventListener('error', function(event) {
+          if (event && event.message && (event.message.indexOf('WebSocket') !== -1 || event.message.indexOf('websocket') !== -1)) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+        }, true);
+      })();
+    </script>
+    
     <!-- Design Identity & Tab Icons -->
     <link rel="icon" type="image/png" href="/CurrentNews.png" />
     <link rel="apple-touch-icon" href="/CurrentNews.png" />
@@ -123,7 +214,7 @@
           "contactPoint": {
             "@type": "ContactPoint",
             "contactType": "Newsroom Editorial Desk",
-            "email": "contact@currentnews.blog",
+            "email": "team@currentnews.blog",
             "url": "https://www.currentnews.blog/contact"
           },
           "areaServed": [

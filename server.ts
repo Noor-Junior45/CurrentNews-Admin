@@ -77,11 +77,12 @@ async function startServer() {
     frameguard: false, // Disables X-Frame-Options: SAMEORIGIN so AI Studio and parent frames can embed the app
     crossOriginOpenerPolicy: false,
     crossOriginResourcePolicy: false,
-    contentSecurityPolicy: {
+    contentSecurityPolicy: process.env.NODE_ENV === 'production' ? {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", 'https://apis.google.com', 'https://*.firebaseapp.com'],
-        styleSrc: ["'self'", "'unsafe-inline'"], // 'unsafe-inline' required by Quill editor & Tailwind
+        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", 'https://apis.google.com', 'https://*.firebaseapp.com', 'https://www.googletagmanager.com'],
+        styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'], // 'unsafe-inline' required by Quill editor & Tailwind
+        fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
         imgSrc: ["'self'", 'https://media.currentnews.blog', 'https:', 'data:', 'blob:'],
         connectSrc: [
           "'self'",
@@ -109,7 +110,7 @@ async function startServer() {
         objectSrc: ["'none'"],
         upgradeInsecureRequests: process.env.NODE_ENV === 'production' ? [] : null,
       },
-    },
+    } : false,
     hsts: process.env.NODE_ENV === 'production' ? { maxAge: 31536000, includeSubDomains: true, preload: true } : false,
     referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
   }));
@@ -197,12 +198,18 @@ async function startServer() {
     '/logo.png', 
     '/favicon.png',
     '/pwa-192x192.png',
-    '/pwa-512x512.png'
+    '/pwa-512x512.png',
+    '/assets/CurrentNews.png',
+    '/assets/currentnews.png',
+    /^\/assets\/CurrentNews-.*\.png$/i
   ], (req, res) => {
-    const fileName = req.path.replace(/^\//, '');
-    let filePath = path.join(process.cwd(), 'dist', fileName);
+    let baseName = path.basename(req.path);
+    let filePath = path.join(process.cwd(), 'dist', 'assets', baseName);
     if (!fs.existsSync(filePath)) {
-      filePath = path.join(process.cwd(), 'public', fileName);
+      filePath = path.join(process.cwd(), 'dist', baseName);
+    }
+    if (!fs.existsSync(filePath)) {
+      filePath = path.join(process.cwd(), 'public', baseName);
     }
     if (!fs.existsSync(filePath)) {
       filePath = path.join(process.cwd(), 'public', 'CurrentNews.png');
@@ -219,9 +226,9 @@ async function startServer() {
     const host = rawHost.split(':')[0].trim().toLowerCase();
     const pathName = req.path || '';
 
-    // Localhost bypass for dev only
-    const isDevLocal = (!host || host === 'localhost' || host === '127.0.0.1' || host === '::1') && process.env.NODE_ENV !== 'production';
-    if (isDevLocal) {
+    // In development mode (AI Studio preview, local dev, container testing),
+    // bypass domain segregation so all preview hosts have full access to the editorial workspace
+    if (process.env.NODE_ENV !== 'production') {
       return next();
     }
 
@@ -443,7 +450,7 @@ async function startServer() {
   app.get(['/api/push/public-key', '/api/admin/push/public-key'], handleGetVapidPublicKey);
   app.post(['/api/push/subscribe', '/api/admin/push/subscribe'], pushSubscribeLimiter, handleSubscribe);
   app.post(['/api/push/unsubscribe', '/api/admin/push/unsubscribe'], pushSubscribeLimiter, handleUnsubscribe);
-  app.post(['/api/push/broadcast', '/api/admin/push/broadcast'], requireRole('admin', 'writer'), handleBroadcast);
+  app.post(['/api/push/broadcast', '/api/admin/push/broadcast'], requireRole('admin'), handleBroadcast);
   app.get(['/api/push/subscribers-count', '/api/admin/push/subscribers-count'], requireRole('admin', 'writer'), handleGetSubscribersCount);
   app.get('/api/admin/push/devices', requireRole('admin', 'writer'), asyncHandler(handleGetDevices));
   app.delete('/api/admin/push/devices/:id', requireRole('admin', 'writer'), asyncHandler(handleDeleteDevice));
@@ -501,18 +508,50 @@ async function startServer() {
     return res.status(404).send('Not found');
   });
 
-  // Connect Vite configuration dynamically to support dev vs prod modes
-  if (process.env.NODE_ENV !== "production") {
+  // Bypass Vite connect by serving prebuilt production bundle directly from dist/
+  const distPath = path.join(process.cwd(), 'dist');
+  const distIndexHtml = path.join(distPath, 'index.html');
+  const hasDist = fs.existsSync(distIndexHtml);
+
+  if (hasDist) {
+    console.log('[Serving Mode] Prebuilt production bundle detected — serving directly from dist/ (Vite connect completely bypassed)');
+    app.use(express.static(distPath));
+    app.get('*', (req, res, next) => {
+      const url = req.originalUrl || req.url;
+      if (url.startsWith('/api/') || url.startsWith('/healthz') || url.startsWith('/readyz')) {
+        return next();
+      }
+      res.sendFile(distIndexHtml);
+    });
+  } else {
+    // Dynamic Vite server fallback only if dist has not yet been built
+    console.log('[Serving Mode] dist/ not found — initializing fallback dynamic Vite dev server');
     const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
+      server: {
+        middlewareMode: true,
+        hmr: false,
+      },
+      appType: "custom",
     });
     app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+
+    app.use('*', async (req, res, next) => {
+      const url = req.originalUrl || req.url;
+      if (url.startsWith('/api/') || url.startsWith('/healthz') || url.startsWith('/readyz')) {
+        return next();
+      }
+      try {
+        const indexHtmlPath = path.resolve(process.cwd(), 'index.html');
+        if (!fs.existsSync(indexHtmlPath)) {
+          return next();
+        }
+        const template = fs.readFileSync(indexHtmlPath, 'utf-8');
+        const html = await vite.transformIndexHtml(url, template);
+        res.status(200).set({ 'Content-Type': 'text/html' }).end(html);
+      } catch (e) {
+        vite.ssrFixStacktrace(e as Error);
+        next(e);
+      }
     });
   }
 

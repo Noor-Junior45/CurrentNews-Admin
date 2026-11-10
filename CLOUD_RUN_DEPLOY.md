@@ -15,6 +15,8 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci || npm install
 COPY . .
+ARG VITE_API_BASE
+ENV VITE_API_BASE=$VITE_API_BASE
 RUN npm run build
 
 # Stage 2: Production Execution Image

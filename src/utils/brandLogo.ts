@@ -1,7 +1,10 @@
 import React from 'react';
 import bundledLogo from '../assets/CurrentNews.png';
+import { CURRENT_NEWS_LOGO_DATA_URI } from '../assets/logoBase64';
 
-export const CURRENT_NEWS_LOGO = bundledLogo;
+// Use embedded data URI as primary logo source to guarantee zero-latency, zero-CORS rendering
+export const CURRENT_NEWS_LOGO = CURRENT_NEWS_LOGO_DATA_URI;
+export const CURRENT_NEWS_LOGO_BUNDLED = bundledLogo;
 export const CURRENT_NEWS_LOGO_PUBLIC = '/CurrentNews.png';
 export const CURRENT_NEWS_LOGO_LOWER = '/currentnews.png';
 
@@ -24,7 +27,7 @@ export function handleLogoError(e: React.SyntheticEvent<HTMLImageElement, Event>
     img.src = CURRENT_NEWS_LOGO_LOWER;
   } else if (level === 2) {
     img.dataset.retryLevel = '3';
-    img.src = CURRENT_NEWS_LOGO_SVG;
+    img.src = '/assets/CurrentNews.png';
   } else {
     // Ultimate fallback: lock to base64 SVG and remove onerror handler to prevent loop
     img.onerror = null;

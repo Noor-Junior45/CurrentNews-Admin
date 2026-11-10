@@ -533,12 +533,12 @@ All `/internal/*` routes require:
     { "success": false, "error": "Forbidden: Your account has no admin role yet", "code": "no_role" }
     ```
 
-### `POST /api/push/broadcast` & `POST /api/admin/push/broadcast`
+### `POST /api/admin/push/broadcast` & `POST /api/push/broadcast`
 - **Method:** `POST`
 - **Headers:**
   - `Authorization: Bearer <Firebase_ID_Token>` (Mandatory via `adminFetch`)
   - `Content-Type: application/json`
-- **Access:** `admin` or `writer` custom claim role
+- **Access:** `admin` custom claim role
 - **Payload:**
   ```json
   { "title": "Current News Alert", "body": "...", "url": "/", "postId": "...", "image": "https://..." }
@@ -546,6 +546,15 @@ All `/internal/*` routes require:
 - **Response Shape (200 OK):**
   ```json
   { "success": true, "sent": 42, "failed": 0, "purged": 1, "total": 42, "message": "Dispatched successfully" }
+  ```
+
+### `GET /api/admin/push/subscribers-count` & `GET /api/push/subscribers-count`
+- **Method:** `GET`
+- **Headers:** `Authorization: Bearer <Firebase_ID_Token>` (Mandatory via `adminFetch`)
+- **Access:** `admin` or `writer` custom claim role
+- **Response Shape (200 OK):**
+  ```json
+  { "success": true, "count": 12 }
   ```
 
 ### `POST /api/mail/send-alert`
