@@ -372,7 +372,16 @@
     1. In `server/api/adminArticles.ts`, `handleUserSync` completely ignores `req.body.uid`, `req.body.email`, and `req.body.role`, strictly using `req.user.uid`, `req.user.email`, and `req.user.role` from the verified token. Only the caller's own row is written to the `staff` table, with the exact token role ('admin' or 'writer'), never defaulting to admin, and returning 400 if the token has no email.
     2. In `server.ts`, updated `GET /api/admin/users` to `requireRole('admin')` only.
     3. In `handleAdminDeleteUser`, added caller self-deletion check (`callerEmail === email || callerUid === email`), looked up Firebase user by email via `adminAuth.getUserByEmail`, set `{ role: null }` claims, revoked refresh tokens (`revokeRefreshTokens`), and recorded an audit log (`user.delete`).
-    4. Completely purged the WebSocket/unhandled rejection shim from `index.html`.
+- [x] **Bug ID & Summary:** BUG-069 — Cloudflare Sync Taking Excessively Long Times Caused by Serial Outbox Iteration, Serial Dual-Write on Save, and 30s Timeout Stalls.
+  - **Root Cause:**
+    1. In `server/sync/d1Publisher.ts`, `syncPendingArticles` processed pending articles in a serial `for (const row of rows)` loop. For 50 articles, it performed 50 consecutive roundtrips to Cloudflare Worker plus 50 sequential SQL updates to Neon, resulting in 20-30 seconds of latency.
+    2. In `signedPost`, `TIMEOUT_MS` was set to 10000ms with 3 retry attempts and exponential backoffs (500ms, 1000ms). If a worker cold-started or experienced edge latency, a single failing article could stall the process for up to 31.5 seconds.
+    3. In `server/api/adminArticles.ts`, `handleAdminCreateOrUpdateArticle` executed live D1 edge sync and legacy Cloudflare R2 storage sync sequentially one after the other, doubling the HTTP response wait time for editors saving an article.
+  - **Permanent Guardrail:**
+    1. In `server/sync/d1Publisher.ts`, implemented `publishArticlesBatchToD1` which utilizes Cloudflare Worker's atomic `POST /internal/bulk` endpoint to sync up to 25 articles in a single HTTP request with an atomic `env.DB.batch` transaction, and updates Neon with `UPDATE articles ... WHERE id = ANY($1::text[])`.
+    2. Implemented concurrent chunk processing (concurrency 5) for drafts/unpublishes and automated single-item fallback if a batch has validation issues.
+    3. Lowered `TIMEOUT_MS` to 5000ms and `MAX_ATTEMPTS` to 2 for responsive failure handling without hanging connections.
+    4. In `server/api/adminArticles.ts`, executed D1 edge sync and R2 storage sync in parallel via `Promise.all`, halving editorial save latency.
 
 
 

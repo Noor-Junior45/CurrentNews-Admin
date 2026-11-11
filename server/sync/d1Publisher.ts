@@ -1,8 +1,8 @@
 import crypto from 'node:crypto';
 import { query, isNeonConfigured } from '../db/neon.ts';
 
-const MAX_ATTEMPTS = 3;
-const TIMEOUT_MS = 10000;
+const MAX_ATTEMPTS = 2;
+const TIMEOUT_MS = 5000;
 
 export interface SignedPostResult {
   ok: boolean;
@@ -187,7 +187,22 @@ export async function syncSingleArticle(row: any): Promise<{ success: boolean; e
 }
 
 /**
+ * Publishes a batch of articles (up to 25) to Cloudflare D1 reader table via /internal/bulk.
+ */
+export async function publishArticlesBatchToD1(rows: any[]): Promise<{ success: boolean; error?: string; count?: number }> {
+  if (rows.length === 0) return { success: true, count: 0 };
+  const d1Articles = rows.map(mapNeonToD1Article);
+  const result = await signedPost('/internal/bulk', { articles: d1Articles });
+  if (result.ok) {
+    return { success: true, count: result.data?.count || rows.length };
+  }
+  return { success: false, error: result.error || 'Failed to bulk publish to D1' };
+}
+
+/**
  * Processes up to `limit` pending outbox articles from Neon, ordered oldest updated first.
+ * Uses fast batch /internal/bulk (up to 25 at a time) for published articles,
+ * and concurrent promises for unpublishing and individual fallbacks.
  */
 export async function syncPendingArticles(limit: number = 50): Promise<{ processed: number; succeeded: number; failed: number }> {
   if (!isNeonConfigured() || !isD1SyncConfigured()) {
@@ -204,33 +219,120 @@ export async function syncPendingArticles(limit: number = 50): Promise<{ process
   );
 
   const rows = res.rows || [];
+  if (rows.length === 0) {
+    return { processed: 0, succeeded: 0, failed: 0 };
+  }
+
   let succeeded = 0;
   let failed = 0;
 
-  for (const row of rows) {
-    const syncRes = await syncSingleArticle(row);
-    if (syncRes.success) {
-      succeeded++;
+  // Separate rows into published (batchable via /internal/bulk) and unpublish/draft
+  const publishedRows = rows.filter((r) => r.status === 'published');
+  const otherRows = rows.filter((r) => r.status !== 'published');
+
+  // 1. Process published rows in batches of up to 25 via atomic /internal/bulk
+  const BATCH_SIZE = 25;
+  for (let i = 0; i < publishedRows.length; i += BATCH_SIZE) {
+    const chunk = publishedRows.slice(i, i + BATCH_SIZE);
+    const bulkRes = await publishArticlesBatchToD1(chunk);
+
+    if (bulkRes.success) {
+      succeeded += chunk.length;
+      const ids = chunk.map((r) => r.id);
       await query(
         `UPDATE articles 
          SET sync_pending = false, 
              synced_at = now(), 
              synced_version = version, 
              sync_error = NULL 
-         WHERE id = $1`,
-        [row.id]
+         WHERE id = ANY($1::text[])`,
+        [ids]
       );
     } else {
-      failed++;
-      const cleanError = (syncRes.error || 'Sync error').slice(0, 300);
-      await query(
-        `UPDATE articles 
-         SET sync_pending = true, 
-             sync_error = $1 
-         WHERE id = $2`,
-        [cleanError, row.id]
+      // If bulk fails (e.g. single item validation issue), fall back to concurrent individual processing
+      console.warn(`[D1 Sync] Bulk sync of ${chunk.length} items failed (${bulkRes.error}), falling back to concurrent single items...`);
+      const singleResults = await Promise.all(
+        chunk.map(async (row) => {
+          const syncRes = await syncSingleArticle(row);
+          if (syncRes.success) {
+            await query(
+              `UPDATE articles 
+               SET sync_pending = false, 
+                   synced_at = now(), 
+                   synced_version = version, 
+                   sync_error = NULL 
+               WHERE id = $1`,
+              [row.id]
+            );
+            return true;
+          } else {
+            const cleanError = (syncRes.error || 'Sync error').slice(0, 300);
+            await query(
+              `UPDATE articles 
+               SET sync_pending = true, 
+                   sync_error = $1 
+               WHERE id = $2`,
+              [cleanError, row.id]
+            );
+            return false;
+          }
+        })
       );
-      console.warn(`[D1 Sync] Pending article ${row.id} sync failed: ${cleanError}`);
+
+      for (const ok of singleResults) {
+        if (ok) succeeded++;
+        else failed++;
+      }
+    }
+  }
+
+  // 2. Process drafts/unpublishes concurrently in chunks of 5
+  const UNPUBLISH_CONCURRENCY = 5;
+  for (let i = 0; i < otherRows.length; i += UNPUBLISH_CONCURRENCY) {
+    const chunk = otherRows.slice(i, i + UNPUBLISH_CONCURRENCY);
+    const results = await Promise.all(
+      chunk.map(async (row) => {
+        try {
+          const syncRes = await syncSingleArticle(row);
+          if (syncRes.success) {
+            await query(
+              `UPDATE articles 
+               SET sync_pending = false, 
+                   synced_at = now(), 
+                   synced_version = version, 
+                   sync_error = NULL 
+               WHERE id = $1`,
+              [row.id]
+            );
+            return true;
+          } else {
+            const cleanError = (syncRes.error || 'Sync error').slice(0, 300);
+            await query(
+              `UPDATE articles 
+               SET sync_pending = true, 
+                   sync_error = $1 
+               WHERE id = $2`,
+              [cleanError, row.id]
+            );
+            return false;
+          }
+        } catch (err: any) {
+          const cleanError = (err?.message || 'Sync error').slice(0, 300);
+          await query(
+            `UPDATE articles 
+             SET sync_pending = true, 
+                 sync_error = $1 
+             WHERE id = $2`,
+            [cleanError, row.id]
+          ).catch(() => {});
+          return false;
+        }
+      })
+    );
+
+    for (const ok of results) {
+      if (ok) succeeded++;
+      else failed++;
     }
   }
 

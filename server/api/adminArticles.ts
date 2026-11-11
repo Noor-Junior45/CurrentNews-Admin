@@ -570,49 +570,6 @@ export async function handleAdminCreateOrUpdateArticle(req: Request, res: Respon
       if (insertErr) return insertErr;
     }
 
-    // PART D: Live sync to Cloudflare D1 reader copy (if configured)
-    if (rawDbRow && isD1SyncConfigured()) {
-      try {
-        const d1SyncRes = await syncSingleArticle(rawDbRow);
-        if (d1SyncRes.success) {
-          syncedAt = new Date();
-          await query(
-            `UPDATE articles 
-             SET sync_pending = false, 
-                 synced_at = $1, 
-                 synced_version = version, 
-                 sync_error = NULL 
-             WHERE id = $2`,
-            [syncedAt, articleId]
-          );
-          neonArticle.syncPending = false;
-          neonArticle.syncedAt = syncedAt.toISOString();
-          neonArticle.syncError = null;
-        } else {
-          syncError = (d1SyncRes.error || 'D1 sync failed').slice(0, 300);
-          await query(
-            `UPDATE articles 
-             SET sync_pending = true, 
-                 sync_error = $1 
-             WHERE id = $2`,
-            [syncError, articleId]
-          );
-          neonArticle.syncPending = true;
-          neonArticle.syncError = syncError;
-        }
-      } catch (d1Err: any) {
-        syncError = (d1Err?.message || 'D1 sync error').slice(0, 300);
-        await query(
-          `UPDATE articles 
-           SET sync_pending = true, 
-               sync_error = $1 
-           WHERE id = $2`,
-          [syncError, articleId]
-        ).catch(() => {});
-        neonArticle.syncPending = true;
-        neonArticle.syncError = syncError;
-      }
-    }
   }
 
   const postPayloadForR2 = {
@@ -642,18 +599,72 @@ export async function handleAdminCreateOrUpdateArticle(req: Request, res: Respon
     publishedAt: (neonArticle?.publishedAt) ?? (insertPublishedAt ? insertPublishedAt.toISOString() : (adminPublishedAt ? adminPublishedAt.toISOString() : null)),
   };
 
-  // Legacy Dual-write: Maintain Cloudflare R2 / local feed compatibility for reader site and old apps
-  if (data.status === 'published') {
+  // Run live Cloudflare D1 edge sync and legacy R2 sync in parallel to minimize latency
+  const d1SyncTask = async () => {
+    if (!rawDbRow || !isD1SyncConfigured()) return;
     try {
-      await saveArticleToR2(postPayloadForR2);
-    } catch (r2Err: any) {
-      console.warn('[Admin API] Legacy R2 sync warning:', r2Err?.message || r2Err);
+      const d1SyncRes = await syncSingleArticle(rawDbRow);
+      if (d1SyncRes.success) {
+        syncedAt = new Date();
+        await query(
+          `UPDATE articles 
+           SET sync_pending = false, 
+               synced_at = $1, 
+               synced_version = version, 
+               sync_error = NULL 
+           WHERE id = $2`,
+          [syncedAt, articleId]
+        );
+        if (neonArticle) {
+          neonArticle.syncPending = false;
+          neonArticle.syncedAt = syncedAt.toISOString();
+          neonArticle.syncError = null;
+        }
+      } else {
+        syncError = (d1SyncRes.error || 'D1 sync failed').slice(0, 300);
+        await query(
+          `UPDATE articles 
+           SET sync_pending = true, 
+               sync_error = $1 
+           WHERE id = $2`,
+          [syncError, articleId]
+        );
+        if (neonArticle) {
+          neonArticle.syncPending = true;
+          neonArticle.syncError = syncError;
+        }
+      }
+    } catch (d1Err: any) {
+      syncError = (d1Err?.message || 'D1 sync error').slice(0, 300);
+      await query(
+        `UPDATE articles 
+         SET sync_pending = true, 
+             sync_error = $1 
+         WHERE id = $2`,
+        [syncError, articleId]
+      ).catch(() => {});
+      if (neonArticle) {
+        neonArticle.syncPending = true;
+        neonArticle.syncError = syncError;
+      }
     }
-  } else if (data.status === 'draft' || data.status === 'archived') {
-    try {
-      await deleteArticleFromR2(articleId);
-    } catch (_) {}
-  }
+  };
+
+  const r2SyncTask = async () => {
+    if (data.status === 'published') {
+      try {
+        await saveArticleToR2(postPayloadForR2);
+      } catch (r2Err: any) {
+        console.warn('[Admin API] Legacy R2 sync warning:', r2Err?.message || r2Err);
+      }
+    } else if (data.status === 'draft' || data.status === 'archived') {
+      try {
+        await deleteArticleFromR2(articleId);
+      } catch (_) {}
+    }
+  };
+
+  await Promise.all([d1SyncTask(), r2SyncTask()]);
 
   // Audit log
   await recordAuditLog(
