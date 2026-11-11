@@ -483,7 +483,7 @@ export default function CurrentPublicationsView(): React.JSX.Element {
                         </span>
                         <span className="text-[10px] text-slate-400">•</span>
                         <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
-                          {safeFormatDate(post.createdAt)}
+                          {safeFormatDate(post.publishedAt || post.createdAt)}
                         </span>
                       </div>
 
@@ -499,16 +499,38 @@ export default function CurrentPublicationsView(): React.JSX.Element {
 
                   {/* Actions */}
                   <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
-                    <a
-                      href={getCanonicalPostUrl(post.id, post.title)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="p-2 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
-                      title="Open in Reader Site (currentnews.blog)"
-                      aria-label={`Open "${post.title}" on reader site`}
-                    >
-                      <ArrowUpRight className="w-4 h-4" />
-                    </a>
+                    {post.status === 'published' && !post.syncPending && !post.syncError && (
+                      <a
+                        href={getCanonicalPostUrl(post.id, post.title)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="p-2 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                        title="Open in Reader Site (currentnews.blog)"
+                        aria-label={`Open "${post.title}" on reader site`}
+                      >
+                        <ArrowUpRight className="w-4 h-4" />
+                      </a>
+                    )}
+
+                    {post.status === 'published' && post.syncPending && !post.syncError && (
+                      <span
+                        className="p-2 text-slate-400 dark:text-slate-500 cursor-not-allowed inline-flex items-center justify-center opacity-75"
+                        title="Syncing to reader..."
+                        aria-label="Syncing to reader..."
+                      >
+                        <RefreshCw className="w-4 h-4 animate-spin text-slate-400 dark:text-slate-500" />
+                      </span>
+                    )}
+
+                    {post.status === 'published' && Boolean(post.syncError) && (
+                      <span
+                        className="p-2 text-amber-500 dark:text-amber-400 cursor-help inline-flex items-center justify-center"
+                        title="Sync failed - open the article and save again"
+                        aria-label="Sync failed - open the article and save again"
+                      >
+                        <AlertCircle className="w-4 h-4 text-amber-500 dark:text-amber-400" />
+                      </span>
+                    )}
 
                     <Link
                       to={`/admin/draft?id=${post.id}`}

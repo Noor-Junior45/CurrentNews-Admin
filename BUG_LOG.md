@@ -351,4 +351,16 @@
     1. In `src/utils/shareUrl.ts`, updated `getCanonicalPostUrl` and `getCanonicalSiteOrigin` to resolve directly to the public reader website (`https://currentnews.blog` or `VITE_READER_BASE_URL`), strictly preventing localhost or admin-portal origins from leaking into article share links.
     2. In `src/views/CurrentPublicationsView.tsx`, made the arrow button render consistently on all articles in the list using an external native `<a href={getCanonicalPostUrl(post.id, post.title)} target="_blank" rel="noopener noreferrer">`, opening the public reader article in a new tab.
 
+- [x] **Bug ID & Summary:** BUG-067 — Open in Reader Arrow Appearing on Drafts & Unsynced Articles Causing "Article not found", and Row Date Using created_at Instead of published_at.
+  - **Root Cause:**
+    1. In `src/views/CurrentPublicationsView.tsx`, the `ArrowUpRight` reader link was rendered without checking `post.status === 'published'`, `post.syncPending`, or `post.syncError`. Clicking the link for draft articles or articles whose background outbox sync to the reader had not completed navigated to non-existent URLs on the reader site resulting in "Article not found".
+    2. In `CurrentPublicationsView.tsx`, article rows formatted `post.createdAt` instead of `post.publishedAt`, causing edited or backdated articles to display the creation date rather than the active published date.
+    3. In `server/api/adminArticles.ts`, `mapRowToArticle` used `syncPending: row.sync_pending !== false`, which evaluated to `true` when `row.sync_pending` was `undefined` or null in fallback feeds.
+  - **Permanent Guardrail:**
+    1. In `server/api/adminArticles.ts`, mapped `syncPending: Boolean(row.sync_pending)` and `syncError: row.sync_error || null` across database queries and R2 fallback results.
+    2. In `CurrentPublicationsView.tsx`, gated the `ArrowUpRight` reader link strictly behind `post.status === 'published' && !post.syncPending && !post.syncError`.
+    3. Rendered a small disabled icon (`<RefreshCw className="animate-spin" />`) with tooltip `"Syncing to reader..."` for published articles still syncing, and a warning icon (`<AlertCircle />`) with tooltip `"Sync failed - open the article and save again"` when `post.syncError` exists. For drafts, neither icon is shown.
+    4. Switched the article row date display to `safeFormatDate(post.publishedAt || post.createdAt)` so published dates display accurately.
+
+
 

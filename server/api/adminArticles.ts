@@ -171,7 +171,7 @@ export function mapRowToArticle(row: any): any {
     updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString(),
     publishedAt: row.published_at ? new Date(row.published_at).toISOString() : null,
     syncedAt: row.synced_at ? new Date(row.synced_at).toISOString() : null,
-    syncPending: row.sync_pending !== false,
+    syncPending: Boolean(row.sync_pending),
     syncedVersion: row.synced_version || 0,
     syncError: row.sync_error || null,
   };
@@ -777,7 +777,12 @@ export async function handleAdminGetArticles(req: Request, res: Response) {
     for (const p of [...rawFeed, ...localFeed]) {
       if (p && p.id) map.set(p.id, p);
     }
-    let articles = Array.from(map.values());
+    let articles = Array.from(map.values()).map(p => ({
+      ...p,
+      syncPending: Boolean(p.syncPending),
+      syncError: p.syncError || null,
+      publishedAt: p.publishedAt || p.createdAt || null,
+    }));
 
     if (user.role === 'writer') {
       articles = articles.filter(p => p.authorId === user.uid || (p.authorEmail && p.authorEmail.toLowerCase() === (user.email || '').toLowerCase()));

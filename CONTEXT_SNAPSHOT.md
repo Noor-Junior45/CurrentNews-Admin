@@ -390,6 +390,15 @@
   - Updated `src/utils/shareUrl.ts` so `getCanonicalPostUrl` and `getCanonicalSiteOrigin` strictly resolve to `https://currentnews.blog/post/:id/:slug` (and never localhost or preview runner origins).
   - Verified with `npm run build`, `compile_applet`, `lint_applet`, and runtime tsx assertion.
 
+- **Phase 52 (Reader Arrow Sync Gating & Published Date Display):** [COMPLETED]
+  - Updated `server/api/adminArticles.ts` `mapRowToArticle` to map `syncPending: Boolean(row.sync_pending)` and `syncError: row.sync_error || null` across all database and fallback articles.
+  - In `src/views/CurrentPublicationsView.tsx`, gated the `ArrowUpRight` reader link to show ONLY when `post.status === 'published' && !post.syncPending && !post.syncError`.
+  - For published articles still syncing (`syncPending && !syncError`), replaced the arrow with a disabled spinning refresh icon and tooltip `"Syncing to reader..."`.
+  - For published articles with `syncError`, displayed a warning alert icon with tooltip `"Sync failed - open the article and save again"`.
+  - For drafts, suppressed the icon completely so non-existent URLs are never opened in the reader.
+  - Updated article row date to `safeFormatDate(post.publishedAt || post.createdAt)` so published dates reflect correctly.
+  - Verified with `npx tsc --noEmit` (0 errors), `npm run build`, `compile_applet`, and `lint_applet`.
+
 ## 4. Immediate Next Step
 - Admin editorial desk fully verified and operational on Cloud Run container runtime.
 
