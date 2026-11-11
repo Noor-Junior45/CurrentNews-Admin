@@ -8,6 +8,7 @@ import { getCompressedStories, removeCompressedStory, getDeletedStoryIds } from 
 import { adminFetch } from '../utils/adminFetch';
 import { safeFormatDate } from '../utils/dateHelper';
 import { updateDocumentSEO } from '../utils/seo';
+import { getCanonicalPostUrl } from '../utils/shareUrl';
 import { 
   PlusCircle, 
   Edit3, 
@@ -498,17 +499,16 @@ export default function CurrentPublicationsView(): React.JSX.Element {
 
                   {/* Actions */}
                   <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
-                    {post.status === 'published' && (
-                      <Link
-                        to={`/post/${post.id}/${slugify(post.title)}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="p-2 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
-                        title="View Live Article"
-                      >
-                        <ArrowUpRight className="w-4 h-4" />
-                      </Link>
-                    )}
+                    <a
+                      href={getCanonicalPostUrl(post.id, post.title)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="p-2 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                      title="Open in Reader Site (currentnews.blog)"
+                      aria-label={`Open "${post.title}" on reader site`}
+                    >
+                      <ArrowUpRight className="w-4 h-4" />
+                    </a>
 
                     <Link
                       to={`/admin/draft?id=${post.id}`}

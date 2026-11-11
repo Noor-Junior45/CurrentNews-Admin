@@ -334,3 +334,21 @@
     1. In `server/api/adminArticles.ts`, permanently exclude `status != 'archived'` whenever `statusParam !== 'archived'`.
     2. In `CurrentPublicationsView.tsx`, compute `allCount = nonArchivedPosts.length`, `publishedCount = nonArchivedPosts.filter(p => p.status === 'published').length`, and `draftsCount = nonArchivedPosts.filter(p => p.status === 'draft').length`.
     3. Added 0ms optimistic UI filtering in `handleDeletePost`, updated `stories-updated` handler to immediately apply optimistic additions and deletions, and added `storage` window listener to react to multi-tab updates.
+
+- [x] **Bug ID & Summary:** BUG-065 — Neon PostgreSQL Schema Warmup Error `[Neon Database] Query error: permission denied for schema public` on Server Startup.
+  - **Root Cause:** In `server/db/neon.ts`, `ensureDatabaseSchema()` ran unconditional `CREATE TABLE IF NOT EXISTS` and `CREATE INDEX IF NOT EXISTS` on server initialization. In production and least-privilege environments, the database connection is authenticated as restricted application user `cn_app`, which intentionally lacks DDL / `CREATE` privilege on `schema public` (per PostgreSQL 15+ CVE-2018-1058 security model). Even with `IF NOT EXISTS`, PostgreSQL checks schema `CREATE` privileges before table existence, triggering `42501 permission denied for schema public` and logging error stacks on boot.
+  - **Permanent Guardrail:**
+    1. In `server/db/neon.ts`, gated DDL execution behind `SELECT has_schema_privilege(current_user, 'public', 'CREATE') as can_create`. When `false` (application role `cn_app`), DDL statements are bypassed entirely and core tables (`articles`, `staff`, `push_subscriptions`, `audit_log`) are safely verified using catalog probe `to_regclass` without throwing permission rejections.
+    2. Implemented `hasTablePrivilege(tableName, privilege)` with an in-memory cache to dynamically guard `users` and `subscribers` table queries in `server/api/adminArticles.ts` (`handleUserSync`, `handleAdminGetUsers`, and `handleAdminDeleteUser`), ensuring operations gracefully fall back to the accessible `staff` table when running under restricted credentials.
+    3. Added `uselibpqcompat=true` sanitization to the pooled connection string in `getPool()` to eliminate Node `pg`/`libpq` SSL deprecation warnings on boot.
+
+- [x] **Bug ID & Summary:** BUG-066 — Publications Page Arrow Link Opening Admin/Localhost Relative Routes and Missing on Non-Published Posts.
+  - **Root Cause:**
+    1. In `src/views/CurrentPublicationsView.tsx`, the arrow button was enclosed in `{post.status === 'published' && ...}`, hiding it on draft articles.
+    2. The button used React Router `<Link to={`/post/${post.id}/${slugify(post.title)}`} />`, which evaluated as a relative route on the admin host (`localhost:3000` or `admin.currentnews.blog`) instead of navigating to the reader website.
+    3. `src/utils/shareUrl.ts` previously inspected `origin.startsWith('http')` and returned the dev runner's origin (`ais-dev-*.run.app` or `localhost:3000`), generating non-public links.
+  - **Permanent Guardrail:**
+    1. In `src/utils/shareUrl.ts`, updated `getCanonicalPostUrl` and `getCanonicalSiteOrigin` to resolve directly to the public reader website (`https://currentnews.blog` or `VITE_READER_BASE_URL`), strictly preventing localhost or admin-portal origins from leaking into article share links.
+    2. In `src/views/CurrentPublicationsView.tsx`, made the arrow button render consistently on all articles in the list using an external native `<a href={getCanonicalPostUrl(post.id, post.title)} target="_blank" rel="noopener noreferrer">`, opening the public reader article in a new tab.
+
+

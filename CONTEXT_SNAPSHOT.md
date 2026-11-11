@@ -372,8 +372,26 @@
   - `CurrentPublicationsView.tsx`: Computed clean `allCount`, `publishedCount`, and `draftsCount` excluding archived records, applied 0ms optimistic updates on article deletion, added real-time listeners for `stories-updated` and multi-tab `storage` events, and rendered exact parenthesized counters on `All (${allCount})` and `Published (${publishedCount})`.
   - Rebuilt production bundle (`npm run build`), verified `compile_applet` and `lint_applet` passed with 0 errors.
 
+- **Phase 50 (Neon PostgreSQL Least-Privilege Schema Verification & Error Elimination):** [COMPLETED]
+  - Diagnosed `[Neon Database] Query error: permission denied for schema public` on server startup:
+    - In production and Cloud Run environments, the database connection is authenticated using least-privilege application role `cn_app` (per PostgreSQL 15+ CVE-2018-1058 security recommendations), which intentionally lacks DDL / `CREATE` privileges on `schema public`.
+    - `ensureDatabaseSchema()` in `server/db/neon.ts` ran unconditional `CREATE TABLE IF NOT EXISTS` and `CREATE INDEX IF NOT EXISTS` on startup, causing PostgreSQL to reject DDL execution with `42501 permission denied for schema public`.
+  - Implemented Safeguards:
+    1. In `server/db/neon.ts`, checked `SELECT has_schema_privilege(current_user, 'public', 'CREATE') as can_create`. When `false`, DDL execution is cleanly bypassed and table availability is verified via non-destructive catalog check `to_regclass` (`articles`, `staff`, `push_subscriptions`, `audit_log`).
+    2. Implemented `hasTablePrivilege(tableName, privilege)` with in-memory caching to guard table queries in `server/api/adminArticles.ts` (`handleUserSync`, `handleAdminGetUsers`, and `handleAdminDeleteUser`), ensuring operations fall back gracefully to the accessible `staff` table when running under restricted credentials.
+    3. Added `uselibpqcompat=true` connection string sanitization in `getPool()`, silencing Node `pg`/`libpq` SSL deprecation warnings.
+    4. Fixed TypeScript type inference for subscriber list in `AudienceRegistryView.tsx`.
+  - Verification: `npm run build`, `compile_applet`, `lint_applet` passed with 0 errors; verified live Neon connection and browser snapshot with zero errors.
+
+- **Phase 51 (Publication Arrow Buttons Direct Reader Site Linking):** [COMPLETED]
+  - Located focused arrow element (`div#current-publications-view > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > a:nth-of-type(1) > svg:nth-of-type(1)`).
+  - Ensured the arrow button is present across all articles on the publications page.
+  - Replaced internal React Router `<Link>` with a direct external `<a href={getCanonicalPostUrl(post.id, post.title)} target="_blank" rel="noopener noreferrer">`.
+  - Updated `src/utils/shareUrl.ts` so `getCanonicalPostUrl` and `getCanonicalSiteOrigin` strictly resolve to `https://currentnews.blog/post/:id/:slug` (and never localhost or preview runner origins).
+  - Verified with `npm run build`, `compile_applet`, `lint_applet`, and runtime tsx assertion.
+
 ## 4. Immediate Next Step
-- Admin editorial desk active and verified on Cloud Run container runtime.
+- Admin editorial desk fully verified and operational on Cloud Run container runtime.
 
 
 

@@ -183,7 +183,14 @@ export default function AudienceRegistryView(): React.JSX.Element {
         setUserEmails(res.data.users);
       } else {
         const rows = await api.getSubscribersAdmin();
-        const list = rows.map(r => ({
+        const list: Array<{
+          id: string;
+          email: string;
+          role: string;
+          displayName: string;
+          createdAt?: any;
+          lastLoginAt?: any;
+        }> = rows.map(r => ({
           id: r.email,
           email: r.email,
           role: 'subscriber',

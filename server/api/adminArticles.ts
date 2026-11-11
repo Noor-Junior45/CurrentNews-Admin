@@ -2,7 +2,7 @@ import type { Request, Response } from 'express';
 import crypto from 'node:crypto';
 import { z } from 'zod';
 import sanitizeHtml from 'sanitize-html';
-import { query, isNeonConfigured } from '../db/neon.ts';
+import { query, isNeonConfigured, hasTablePrivilege } from '../db/neon.ts';
 import { adminAuth } from '../auth/firebaseAdmin.ts';
 import { verifyFirebaseTokenSafely } from '../auth/tokenVerifier.ts';
 import { saveArticleToR2, deleteArticleFromR2, getFeedFromR2, loadLocalFeed, extractPlainExcerpt, getArticleFromR2 } from '../../src/server/r2Articles.ts';
@@ -1067,20 +1067,24 @@ export async function handleUserSync(req: Request, res: Response) {
 
   if (isNeonConfigured()) {
     try {
-      // 1. Record the logged-in user in the primary users table
-      await query(
-        `INSERT INTO users (uid, email, role, display_name, last_login_at)
-         VALUES ($1, $2, $3, $4, NOW())
-         ON CONFLICT (uid) DO UPDATE
-           SET email = EXCLUDED.email,
-               role = COALESCE(users.role, EXCLUDED.role),
-               display_name = COALESCE(EXCLUDED.display_name, users.display_name),
-               last_login_at = NOW()`,
-        [uid, email, role, displayName]
-      );
+      // 1. Record the logged-in user in the primary users table if available
+      const canAccessUsers = await hasTablePrivilege('users', 'INSERT');
+      if (canAccessUsers) {
+        await query(
+          `INSERT INTO users (uid, email, role, display_name, last_login_at)
+           VALUES ($1, $2, $3, $4, NOW())
+           ON CONFLICT (uid) DO UPDATE
+             SET email = EXCLUDED.email,
+                 role = COALESCE(users.role, EXCLUDED.role),
+                 display_name = COALESCE(EXCLUDED.display_name, users.display_name),
+                 last_login_at = NOW()`,
+          [uid, email, role, displayName]
+        );
+      }
 
       // 2. If the user has staff privileges (admin or writer), also upsert staff table
-      if (role === 'admin' || role === 'writer') {
+      const canAccessStaff = await hasTablePrivilege('staff', 'INSERT');
+      if (canAccessStaff && (role === 'admin' || role === 'writer')) {
         await query(
           `INSERT INTO staff (uid, email, role, pen_name)
            VALUES ($1, $2, $3, $4)
@@ -1141,70 +1145,76 @@ export async function handleAdminGetUsers(_req: Request, res: Response) {
   // 2. Query Neon Database users table & staff table
   if (isNeonConfigured()) {
     try {
-      const dbUsers = await query<{
-        uid: string;
-        email: string;
-        role: string;
-        display_name: string | null;
-        last_login_at: string;
-        created_at: string;
-      }>(`
-        SELECT uid, email, role, display_name, last_login_at, created_at
-        FROM users
-        ORDER BY last_login_at DESC NULLS LAST
-        LIMIT 1000
-      `);
+      const canSelectUsers = await hasTablePrivilege('users', 'SELECT');
+      if (canSelectUsers) {
+        const dbUsers = await query<{
+          uid: string;
+          email: string;
+          role: string;
+          display_name: string | null;
+          last_login_at: string;
+          created_at: string;
+        }>(`
+          SELECT uid, email, role, display_name, last_login_at, created_at
+          FROM users
+          ORDER BY last_login_at DESC NULLS LAST
+          LIMIT 1000
+        `);
 
-      for (const r of (dbUsers.rows || [])) {
-        if (!r.email) continue;
-        const emailLower = r.email.toLowerCase();
-        const existing = userMap.get(emailLower);
-        if (existing) {
-          if (r.display_name && !existing.displayName) existing.displayName = r.display_name;
-          if (r.role && r.role !== 'reader') existing.role = r.role;
-          if (r.last_login_at) existing.lastLoginAt = r.last_login_at;
-        } else {
-          userMap.set(emailLower, {
-            id: r.uid,
-            email: emailLower,
-            role: r.role || 'reader',
-            displayName: r.display_name || '',
-            lastLoginAt: r.last_login_at || r.created_at,
-            createdAt: r.created_at,
-          });
+        for (const r of (dbUsers.rows || [])) {
+          if (!r.email) continue;
+          const emailLower = r.email.toLowerCase();
+          const existing = userMap.get(emailLower);
+          if (existing) {
+            if (r.display_name && !existing.displayName) existing.displayName = r.display_name;
+            if (r.role && r.role !== 'reader') existing.role = r.role;
+            if (r.last_login_at) existing.lastLoginAt = r.last_login_at;
+          } else {
+            userMap.set(emailLower, {
+              id: r.uid,
+              email: emailLower,
+              role: r.role || 'reader',
+              displayName: r.display_name || '',
+              lastLoginAt: r.last_login_at || r.created_at,
+              createdAt: r.created_at,
+            });
+          }
         }
       }
 
-      // Also incorporate staff table if present
-      const staffUsers = await query<{
-        uid: string;
-        email: string;
-        role: string;
-        pen_name: string | null;
-        created_at: string;
-      }>(`
-        SELECT uid, email, role, pen_name, created_at
-        FROM staff
-        ORDER BY created_at DESC
-        LIMIT 500
-      `);
+      // Also incorporate staff table if present and accessible
+      const canSelectStaff = await hasTablePrivilege('staff', 'SELECT');
+      if (canSelectStaff) {
+        const staffUsers = await query<{
+          uid: string;
+          email: string;
+          role: string;
+          pen_name: string | null;
+          created_at: string;
+        }>(`
+          SELECT uid, email, role, pen_name, created_at
+          FROM staff
+          ORDER BY created_at DESC
+          LIMIT 500
+        `);
 
-      for (const r of (staffUsers.rows || [])) {
-        if (!r.email) continue;
-        const emailLower = r.email.toLowerCase();
-        const existing = userMap.get(emailLower);
-        if (existing) {
-          if (r.role) existing.role = r.role;
-          if (r.pen_name && !existing.displayName) existing.displayName = r.pen_name;
-        } else {
-          userMap.set(emailLower, {
-            id: r.uid,
-            email: emailLower,
-            role: r.role || 'writer',
-            displayName: r.pen_name || '',
-            lastLoginAt: r.created_at,
-            createdAt: r.created_at,
-          });
+        for (const r of (staffUsers.rows || [])) {
+          if (!r.email) continue;
+          const emailLower = r.email.toLowerCase();
+          const existing = userMap.get(emailLower);
+          if (existing) {
+            if (r.role) existing.role = r.role;
+            if (r.pen_name && !existing.displayName) existing.displayName = r.pen_name;
+          } else {
+            userMap.set(emailLower, {
+              id: r.uid,
+              email: emailLower,
+              role: r.role || 'writer',
+              displayName: r.pen_name || '',
+              lastLoginAt: r.created_at,
+              createdAt: r.created_at,
+            });
+          }
         }
       }
     } catch (err: any) {
@@ -1237,9 +1247,15 @@ export async function handleAdminDeleteUser(req: Request, res: Response) {
 
   if (isNeonConfigured()) {
     try {
-      await query('DELETE FROM users WHERE lower(email) = $1 OR uid = $1', [email]);
-      await query('DELETE FROM staff WHERE lower(email) = $1 OR uid = $1', [email]);
-      await query('DELETE FROM subscribers WHERE lower(email) = $1', [email]);
+      if (await hasTablePrivilege('users', 'DELETE')) {
+        await query('DELETE FROM users WHERE lower(email) = $1 OR uid = $1', [email]);
+      }
+      if (await hasTablePrivilege('staff', 'DELETE')) {
+        await query('DELETE FROM staff WHERE lower(email) = $1 OR uid = $1', [email]);
+      }
+      if (await hasTablePrivilege('subscribers', 'DELETE')) {
+        await query('DELETE FROM subscribers WHERE lower(email) = $1', [email]);
+      }
     } catch (err: any) {
       console.error('[Neon Users] Delete error:', err);
       return res.status(500).json({ success: false, error: err?.message || 'Failed to delete user' });
