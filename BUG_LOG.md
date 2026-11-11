@@ -362,5 +362,18 @@
     3. Rendered a small disabled icon (`<RefreshCw className="animate-spin" />`) with tooltip `"Syncing to reader..."` for published articles still syncing, and a warning icon (`<AlertCircle />`) with tooltip `"Sync failed - open the article and save again"` when `post.syncError` exists. For drafts, neither icon is shown.
     4. Switched the article row date display to `safeFormatDate(post.publishedAt || post.createdAt)` so published dates display accurately.
 
+- [x] **Bug ID & Summary:** BUG-068 — Insecure User Sync Overwriting Roles from Request Body, Lack of Self-Deletion Protection in Admin Delete, and Legacy WebSocket Shim Retention.
+  - **Root Cause:**
+    1. In `server/api/adminArticles.ts`, `handleUserSync` accepted `uid`, `email`, and `role` from the request body if present, creating a potential privilege escalation vector.
+    2. In `server.ts`, `GET /api/admin/users` was allowed for `requireRole('admin', 'writer')` instead of restricting user directory visibility strictly to administrators.
+    3. In `handleAdminDeleteUser`, an administrator could delete their own account, and deleting a staff member deleted the database record without revoking custom claims or active refresh tokens in Firebase Auth.
+    4. In `index.html`, legacy WebSocket / unhandled rejection shim scripts lingered after switching to the pure static bundle serving model.
+  - **Permanent Guardrail:**
+    1. In `server/api/adminArticles.ts`, `handleUserSync` completely ignores `req.body.uid`, `req.body.email`, and `req.body.role`, strictly using `req.user.uid`, `req.user.email`, and `req.user.role` from the verified token. Only the caller's own row is written to the `staff` table, with the exact token role ('admin' or 'writer'), never defaulting to admin, and returning 400 if the token has no email.
+    2. In `server.ts`, updated `GET /api/admin/users` to `requireRole('admin')` only.
+    3. In `handleAdminDeleteUser`, added caller self-deletion check (`callerEmail === email || callerUid === email`), looked up Firebase user by email via `adminAuth.getUserByEmail`, set `{ role: null }` claims, revoked refresh tokens (`revokeRefreshTokens`), and recorded an audit log (`user.delete`).
+    4. Completely purged the WebSocket/unhandled rejection shim from `index.html`.
+
+
 
 

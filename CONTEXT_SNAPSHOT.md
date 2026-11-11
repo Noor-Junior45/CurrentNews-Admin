@@ -399,6 +399,13 @@
   - Updated article row date to `safeFormatDate(post.publishedAt || post.createdAt)` so published dates reflect correctly.
   - Verified with `npx tsc --noEmit` (0 errors), `npm run build`, `compile_applet`, and `lint_applet`.
 
+- **Phase 55 (User Sync Token Security, Role-Gating & Firebase Token Revocation):** [COMPLETED]
+  - `server/api/adminArticles.ts`: Hardened `handleUserSync` to ignore `uid`, `email`, and `role` from request body, strictly using verified token claims (`req.user.uid`, `req.user.email`, `req.user.role`). Enforced exact token role ('admin' or 'writer') without defaulting to admin, returned 400 if token has no email, and restricted database write strictly to the caller's own row in `staff`.
+  - `server.ts`: Restricted `GET /api/admin/users` to `requireRole('admin')` only (denying access to writers).
+  - `handleAdminDeleteUser`: Blocked self-deletion for administrators, deleted staff record, looked up user via `adminAuth.getUserByEmail`, removed role claims via `setCustomUserClaims(uid, { role: null })`, revoked refresh tokens via `revokeRefreshTokens(uid)`, and emitted structured audit log (`user.delete`).
+  - `index.html`: Completely removed the WebSocket / unhandled rejection shim script.
+  - Verified with `npx tsc --noEmit` (0 errors), `npm run build`, `compile_applet`, and `lint_applet`.
+
 ## 4. Immediate Next Step
 - Admin editorial desk fully verified and operational on Cloud Run container runtime.
 

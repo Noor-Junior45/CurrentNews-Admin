@@ -1016,13 +1016,16 @@ export async function handleAdminGetMe(req: Request, res: Response) {
 
 /**
  * POST /api/users/sync and POST /api/admin/users/sync
- * Authenticated endpoint called upon login or sign-in to guarantee user is stored in users & staff tables.
- * Allows any authenticated Firebase user to sync their own profile, while admins can sync any user.
+ * Authenticated endpoint called upon login or sign-in to guarantee user is stored in staff table.
+ * Ignores uid, email and role from request body. Uses only verified token values.
+ * Only writes the caller's own row in the staff table.
+ * Role stored must be exactly the token role ('admin' or 'writer'), never defaulting to admin.
+ * Returns 400 if the token has no email.
  */
 export async function handleUserSync(req: Request, res: Response) {
   let userUid = req.user?.uid;
   let userEmail = req.user?.email;
-  let userRole = req.user?.role || 'reader';
+  let userRole = req.user?.role;
   let userName = req.user?.name;
 
   // If request has not already passed requireRole middleware, verify Bearer token directly
@@ -1039,57 +1042,33 @@ export async function handleUserSync(req: Request, res: Response) {
       const decoded = await verifyFirebaseTokenSafely(token);
       userUid = decoded.uid;
       userEmail = decoded.email;
-      userRole = decoded.role || 'reader';
+      userRole = decoded.role;
       userName = decoded.name || decoded.displayName;
     } catch (err: any) {
       return res.status(401).json({ success: false, error: 'Unauthorized: Invalid token', code: 'invalid_token' });
     }
   }
 
-  const isAdmin = userRole === 'admin';
-  const targetUid = req.body?.uid ? String(req.body.uid).trim() : '';
-  const isTargetingOther = isAdmin && targetUid && targetUid !== userUid;
+  // Strictly use token values only; ignore req.body uid, email, and role
+  const uid = userUid;
+  const email = (userEmail || '').trim().toLowerCase();
+  const role = userRole; // Exactly the token role, never defaulting to admin
 
-  let uid = userUid;
-  let email = (userEmail || req.body?.email || '').trim().toLowerCase();
-  let role = userRole;
-
-  if (isTargetingOther) {
-    uid = targetUid;
-    if (req.body?.email) {
-      email = String(req.body.email).trim().toLowerCase();
-    }
-    if (req.body?.role) {
-      role = req.body.role;
-    }
+  if (!email) {
+    return res.status(400).json({ success: false, error: 'Token has no email address' });
   }
 
-  const displayName = req.body?.displayName || (uid === userUid ? userName : null) || null;
-
-  if (!email || !uid) {
-    return res.status(400).json({ success: false, error: 'User UID and email are required' });
+  if (role !== 'admin' && role !== 'writer') {
+    return res.status(403).json({ success: false, error: 'Forbidden: Valid staff role required (admin or writer)' });
   }
+
+  const penName = req.body?.displayName || req.body?.penName || userName || null;
 
   if (isNeonConfigured()) {
     try {
-      // 1. Record the logged-in user in the primary users table if available
-      const canAccessUsers = await hasTablePrivilege('users', 'INSERT');
-      if (canAccessUsers) {
-        await query(
-          `INSERT INTO users (uid, email, role, display_name, last_login_at)
-           VALUES ($1, $2, $3, $4, NOW())
-           ON CONFLICT (uid) DO UPDATE
-             SET email = EXCLUDED.email,
-                 role = COALESCE(users.role, EXCLUDED.role),
-                 display_name = COALESCE(EXCLUDED.display_name, users.display_name),
-                 last_login_at = NOW()`,
-          [uid, email, role, displayName]
-        );
-      }
-
-      // 2. If the user has staff privileges (admin or writer), also upsert staff table
+      // Only write the caller's own row in the staff table
       const canAccessStaff = await hasTablePrivilege('staff', 'INSERT');
-      if (canAccessStaff && (role === 'admin' || role === 'writer')) {
+      if (canAccessStaff) {
         await query(
           `INSERT INTO staff (uid, email, role, pen_name)
            VALUES ($1, $2, $3, $4)
@@ -1097,11 +1076,12 @@ export async function handleUserSync(req: Request, res: Response) {
              SET email = EXCLUDED.email,
                  role = EXCLUDED.role,
                  pen_name = COALESCE(EXCLUDED.pen_name, staff.pen_name)`,
-          [uid, email, role, displayName]
+          [uid, email, role, penName]
         );
       }
     } catch (err: any) {
       console.warn('[Neon Users] Sync notice:', err?.message || err);
+      return res.status(500).json({ success: false, error: err?.message || 'Database error during staff sync' });
     }
   }
 
@@ -1250,13 +1230,21 @@ export async function handleAdminDeleteUser(req: Request, res: Response) {
     return res.status(400).json({ success: false, error: 'Email parameter is required' });
   }
 
+  // An admin must not be able to delete their own account
+  const callerEmail = (req.user?.email || '').trim().toLowerCase();
+  const callerUid = (req.user?.uid || '').trim();
+  if ((callerEmail && email === callerEmail) || (callerUid && email === callerUid.toLowerCase())) {
+    return res.status(400).json({ success: false, error: 'An admin cannot delete their own account' });
+  }
+
+  // 1. Delete the staff row (and optional tables if accessible)
   if (isNeonConfigured()) {
     try {
-      if (await hasTablePrivilege('users', 'DELETE')) {
-        await query('DELETE FROM users WHERE lower(email) = $1 OR uid = $1', [email]);
-      }
       if (await hasTablePrivilege('staff', 'DELETE')) {
         await query('DELETE FROM staff WHERE lower(email) = $1 OR uid = $1', [email]);
+      }
+      if (await hasTablePrivilege('users', 'DELETE')) {
+        await query('DELETE FROM users WHERE lower(email) = $1 OR uid = $1', [email]);
       }
       if (await hasTablePrivilege('subscribers', 'DELETE')) {
         await query('DELETE FROM subscribers WHERE lower(email) = $1', [email]);
@@ -1267,19 +1255,34 @@ export async function handleAdminDeleteUser(req: Request, res: Response) {
     }
   }
 
-  // Also remove from Firebase Auth if adminAuth is available
-  try {
-    if (adminAuth) {
-      if (email.includes('@')) {
-        const u = await adminAuth.getUserByEmail(email).catch(() => null);
-        if (u) {
-          await adminAuth.deleteUser(u.uid).catch(() => {});
+  // 2. Look up the Firebase user by email with adminAuth.getUserByEmail, remove role claim and revoke refresh tokens
+  let targetUid: string | null = null;
+  if (adminAuth) {
+    try {
+      const userRecord = await adminAuth.getUserByEmail(email).catch(() => null);
+      if (userRecord) {
+        targetUid = userRecord.uid;
+        if (callerUid && targetUid === callerUid) {
+          return res.status(400).json({ success: false, error: 'An admin cannot delete their own account' });
         }
-      } else {
-        await adminAuth.deleteUser(email).catch(() => {});
+        await adminAuth.setCustomUserClaims(userRecord.uid, { role: null });
+        await adminAuth.revokeRefreshTokens(userRecord.uid);
       }
+    } catch (fbErr: any) {
+      console.debug('[handleAdminDeleteUser] Firebase Auth notice:', fbErr?.message || fbErr);
     }
-  } catch (_) {}
+  }
+
+  // 3. Record an audit log entry like the other admin actions
+  await recordAuditLog(
+    req.user?.uid || '',
+    req.user?.email || '',
+    'user.delete',
+    'staff',
+    email,
+    { targetEmail: email, targetUid },
+    req.ip || ''
+  );
 
   return res.json({ success: true, message: `User ${email} removed successfully.` });
 }

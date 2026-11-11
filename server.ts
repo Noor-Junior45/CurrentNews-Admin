@@ -457,7 +457,7 @@ async function startServer() {
   app.post('/api/admin/push/delete-device', requireRole('admin', 'writer'), asyncHandler(handleDeleteDevice));
 
   // User Management & Audience Registry Endpoints (Neon PostgreSQL & Firebase source of truth)
-  app.get('/api/admin/users', requireRole('admin', 'writer'), asyncHandler(handleAdminGetUsers));
+  app.get('/api/admin/users', requireRole('admin'), asyncHandler(handleAdminGetUsers));
   app.delete('/api/admin/users/:email', requireRole('admin'), asyncHandler(handleAdminDeleteUser));
   app.post(['/api/users/sync', '/api/admin/users/sync'], asyncHandler(handleAdminSyncUser));
 
