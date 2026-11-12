@@ -108,9 +108,24 @@ async function dbDeleteSubscription(endpoint: string): Promise<void> {
   await query('DELETE FROM push_subscriptions WHERE endpoint = $1', [endpoint]);
 }
 
-async function dbCountSubscriptions(): Promise<number> {
-  const result = await query<{ count: string }>('SELECT COUNT(*) AS count FROM push_subscriptions');
-  return parseInt(result.rows[0]?.count ?? '0', 10);
+async function dbCountSubscriptions(): Promise<{ total: number; fcmCount: number; webCount: number }> {
+  try {
+    const result = await query<{ count: string; fcm_count: string; web_count: string }>(`
+      SELECT 
+        COUNT(*) AS count,
+        COUNT(*) FILTER (WHERE endpoint LIKE 'fcm:%') AS fcm_count,
+        COUNT(*) FILTER (WHERE endpoint NOT LIKE 'fcm:%') AS web_count
+      FROM push_subscriptions
+    `);
+    const total = parseInt(result.rows[0]?.count ?? '0', 10);
+    const fcmCount = parseInt(result.rows[0]?.fcm_count ?? '0', 10);
+    const webCount = parseInt(result.rows[0]?.web_count ?? '0', 10);
+    return { total, fcmCount, webCount };
+  } catch {
+    const fallbackRes = await query<{ count: string }>('SELECT COUNT(*) AS count FROM push_subscriptions');
+    const total = parseInt(fallbackRes.rows[0]?.count ?? '0', 10);
+    return { total, fcmCount: 0, webCount: total };
+  }
 }
 
 interface PushRow {
@@ -180,8 +195,12 @@ export async function handleSubscribe(req: Request, res: Response) {
         return res.status(400).json({ success: false, error: valError });
       }
     } else {
-      // Raw FCM device token validation
-      if (endpoint.length > 500 || !/^[A-Za-z0-9_\-:]+$/.test(endpoint)) {
+      // Normalize raw FCM token to start with "fcm:"
+      if (!endpoint.startsWith('fcm:')) {
+        endpoint = 'fcm:' + endpoint;
+      }
+      const tokenOnly = endpoint.slice(4);
+      if (tokenOnly.length > 500 || !/^[A-Za-z0-9_\-:]+$/.test(tokenOnly)) {
         return res.status(400).json({
           success: false,
           error: 'Invalid device token format or exceeds 500 characters',
@@ -191,7 +210,7 @@ export async function handleSubscribe(req: Request, res: Response) {
 
     const ua: string = typeof body.userAgent === 'string'
       ? body.userAgent.slice(0, 512)
-      : (req.headers['user-agent'] || 'Web/Mobile Client').slice(0, 512);
+      : (req.headers['user-agent'] || (endpoint.startsWith('fcm:') ? 'Android App Client' : 'Web/Mobile Client')).slice(0, 512);
 
     await dbUpsertSubscription(
       endpoint,
@@ -246,16 +265,16 @@ export async function handleUnsubscribe(req: Request, res: Response) {
 
 /**
  * GET /api/push/subscribers-count
- * Returns the count of registered push devices.
+ * Returns the count of registered push devices (both Web and FCM).
  * Requires admin or writer role (enforced in server.ts).
  */
 export async function handleGetSubscribersCount(_req: Request, res: Response) {
   try {
-    const count = await dbCountSubscriptions();
-    return res.json({ success: true, count });
+    const { total, fcmCount, webCount } = await dbCountSubscriptions();
+    return res.json({ success: true, count: total, fcmCount, webCount });
   } catch (error: any) {
     console.warn('[Push Service] Count notice:', error);
-    return res.json({ success: true, count: 0 });
+    return res.json({ success: true, count: 0, fcmCount: 0, webCount: 0 });
   }
 }
 
@@ -275,18 +294,23 @@ export async function handleGetDevices(_req: Request, res: Response) {
     const devices = (result.rows || []).map(r => ({
       id: String(r.id),
       endpoint: r.endpoint,
-      userAgent: r.user_agent || 'Unknown Device',
+      userAgent: r.user_agent || (r.endpoint.startsWith('fcm:') ? 'Android App Device' : 'Unknown Device'),
       createdAt: r.created_at,
     }));
+
+    const fcmCount = devices.filter(d => d.endpoint.startsWith('fcm:')).length;
+    const webCount = devices.length - fcmCount;
 
     return res.json({
       success: true,
       count: devices.length,
+      fcmCount,
+      webCount,
       devices,
     });
   } catch (error: any) {
     console.warn('[Push Service] Devices list notice:', error?.message || error);
-    return res.json({ success: true, count: 0, devices: [] });
+    return res.json({ success: true, count: 0, fcmCount: 0, webCount: 0, devices: [] });
   }
 }
 
@@ -316,6 +340,9 @@ export async function handleDeleteDevice(req: Request, res: Response) {
 /**
  * POST /api/push/broadcast
  * Dispatches a push notification to all subscribed devices.
+ * Splits subscriptions into web-push rows and FCM rows (endpoint starting with "fcm:").
+ * For FCM rows, sends data-only messages in batches of 500 via Firebase Admin getMessaging().sendEach().
+ * Automatically deletes rows with unregistered or invalid token error codes.
  * Requires admin role (enforced in server.ts).
  */
 export async function handleBroadcast(req: Request, res: Response) {
@@ -346,78 +373,126 @@ export async function handleBroadcast(req: Request, res: Response) {
       return res.json({
         success: true,
         message: 'No registered devices found in database. Device subscriptions will appear when users or readers opt-in.',
+        webSent: 0,
+        fcmSent: 0,
         sent: 0,
+        removed: 0,
         failed: 0,
-        purged: 0,
         total: 0,
       });
     }
 
-    let sent = 0;
-    let failed = 0;
-    let purged = 0;
+    // 1. Split subscriptions into web-push rows and FCM rows
+    const fcmRows: PushRow[] = [];
+    const webPushRows: PushRow[] = [];
 
-    const BATCH_SIZE = 25;
-    for (let i = 0; i < subscriptions.length; i += BATCH_SIZE) {
-      const batch = subscriptions.slice(i, i + BATCH_SIZE);
+    for (const sub of subscriptions) {
+      const ep = (sub.endpoint || '').trim();
+      if (!ep) continue;
+      if (ep.startsWith('fcm:')) {
+        fcmRows.push(sub);
+      } else {
+        webPushRows.push(sub);
+      }
+    }
+
+    let webSent = 0;
+    let fcmSent = 0;
+    let removed = 0;
+    let failed = 0;
+
+    // 2. Process FCM rows using Firebase Admin Messaging in batches of 500
+    const articleUrl = String(url || (postId ? `https://currentnews.blog/post/${postId}` : '/'));
+    const notifImageUrl = String(image || req.body?.imageUrl || '');
+
+    let messaging: ReturnType<typeof getMessaging> | null = null;
+    try {
+      if (adminApp) {
+        messaging = getMessaging(adminApp);
+      }
+    } catch (msgErr: any) {
+      console.warn('[Push Service] Firebase Admin messaging initialization notice:', msgErr?.message || msgErr);
+    }
+
+    if (fcmRows.length > 0) {
+      if (!messaging) {
+        // Broadcast must still work if Firebase Admin messaging is not available: log one warning, skip FCM rows
+        console.warn('[Push Service] Firebase Admin messaging is not available; skipping FCM rows.');
+      } else {
+        const FCM_BATCH_SIZE = 500;
+        for (let i = 0; i < fcmRows.length; i += FCM_BATCH_SIZE) {
+          const batch = fcmRows.slice(i, i + FCM_BATCH_SIZE);
+          const validBatch: Array<{ token: string; endpoint: string }> = [];
+
+          for (const row of batch) {
+            const rawEp = (row.endpoint || '').trim();
+            const token = rawEp.startsWith('fcm:') ? rawEp.slice(4).trim() : rawEp;
+            if (token) {
+              validBatch.push({ token, endpoint: rawEp.startsWith('fcm:') ? rawEp : `fcm:${token}` });
+            } else {
+              failed++;
+            }
+          }
+
+          if (validBatch.length === 0) continue;
+
+          // Data-only message: no "notification" field, all strings in data, android priority high
+          const messages = validBatch.map((item) => ({
+            token: item.token,
+            data: {
+              title: String(title || ''),
+              body: String(body || ''),
+              url: articleUrl,
+              imageUrl: notifImageUrl,
+            },
+            android: {
+              priority: 'high' as const,
+            },
+          }));
+
+          try {
+            const batchResponse = await messaging.sendEach(messages);
+            for (let idx = 0; idx < batchResponse.responses.length; idx++) {
+              const resp = batchResponse.responses[idx];
+              const item = validBatch[idx];
+              if (resp.success) {
+                fcmSent++;
+              } else {
+                const errCode = resp.error?.code || '';
+                if (
+                  errCode === 'messaging/registration-token-not-registered' ||
+                  errCode === 'messaging/invalid-registration-token'
+                ) {
+                  // DELETE that row from push_subscriptions (endpoint = "fcm:" + token)
+                  await dbDeleteSubscription('fcm:' + item.token).catch(() => {});
+                  removed++;
+                } else {
+                  failed++;
+                  console.warn(`[Push Service] FCM dispatch notice for token ${item.token.slice(0, 10)}...:`, resp.error?.message || resp.error);
+                }
+              }
+            }
+          } catch (batchErr: any) {
+            console.error('[Push Service] FCM sendEach batch error:', batchErr?.message || batchErr);
+            failed += validBatch.length;
+          }
+        }
+      }
+    }
+
+    // 3. Send the web-push rows exactly as today (batches of 25)
+    const WEB_BATCH_SIZE = 25;
+    for (let i = 0; i < webPushRows.length; i += WEB_BATCH_SIZE) {
+      const batch = webPushRows.slice(i, i + WEB_BATCH_SIZE);
       await Promise.all(
         batch.map(async (sub) => {
-          let delivered = false;
           const rawEndpoint = (sub.endpoint || '').trim();
           if (!rawEndpoint) {
             failed++;
             return;
           }
 
-          // Check if this is an FCM registration token or FCM gateway URL
-          const isFcmGateway = rawEndpoint.includes('fcm.googleapis.com/fcm/send/');
-          const isRawFcmToken = !rawEndpoint.startsWith('http://') && !rawEndpoint.startsWith('https://') && rawEndpoint.length > 20;
-          const fcmToken = isFcmGateway
-            ? rawEndpoint.split('/fcm/send/')[1]?.trim()
-            : (isRawFcmToken ? rawEndpoint : null);
-
-          // 1. Deliver via Firebase Cloud Messaging (FCM) for native Android app & Google Play services
-          if (fcmToken && adminApp) {
-            try {
-              const messaging = getMessaging(adminApp);
-              await messaging.send({
-                token: fcmToken,
-                notification: {
-                  title: title || 'Current News Alert',
-                  body: body || 'A new editorial dispatch has just been published.',
-                  imageUrl: image || undefined,
-                },
-                data: {
-                  url: String(url || '/'),
-                  postId: String(postId || ''),
-                },
-                android: {
-                  priority: 'high',
-                  notification: {
-                    icon: 'ic_notification',
-                    color: '#0f172a',
-                    clickAction: 'FLUTTER_NOTIFICATION_CLICK',
-                  },
-                },
-              });
-              sent++;
-              delivered = true;
-            } catch (fcmErr: any) {
-              const errCode = fcmErr?.code || '';
-              if (
-                errCode === 'messaging/registration-token-not-registered' ||
-                errCode === 'messaging/invalid-registration-token'
-              ) {
-                await dbDeleteSubscription(rawEndpoint).catch(() => {});
-                purged++;
-              } else {
-                console.warn(`[Push Service] FCM dispatch notice:`, fcmErr?.message || fcmErr);
-              }
-            }
-          }
-
-          // 2. Deliver via standard WebPush protocol if not already delivered and subscription keys or endpoint exists
-          if (!delivered && pushEnabled && (sub.p256dh || isAllowedEndpoint(rawEndpoint))) {
+          if (pushEnabled && (sub.p256dh || isAllowedEndpoint(rawEndpoint))) {
             try {
               const pushConfig = {
                 endpoint: rawEndpoint,
@@ -431,37 +506,38 @@ export async function handleBroadcast(req: Request, res: Response) {
                 TTL: 86400,
                 urgency: 'high',
               });
-              sent++;
-              delivered = true;
+              webSent++;
             } catch (webpushErr: any) {
               if (webpushErr.statusCode === 404 || webpushErr.statusCode === 410) {
                 await dbDeleteSubscription(rawEndpoint).catch(() => {});
-                purged++;
+                removed++;
               } else {
+                failed++;
                 console.warn(`[Push Service] WebPush delivery notice for ${rawEndpoint.slice(0, 50)}:`, webpushErr?.message || webpushErr);
               }
             }
-          }
-
-          if (!delivered) {
+          } else {
             failed++;
           }
         })
       );
     }
 
-    const summaryMessage = sent > 0
-      ? `Ping broadcast dispatched to ${sent} active device(s)${purged > 0 ? ` (${purged} stale tokens purged)` : ''}.`
+    const totalSent = webSent + fcmSent;
+    const summaryMessage = totalSent > 0
+      ? `Dispatched successfully to ${totalSent} active device(s) (${webSent} Web, ${fcmSent} FCM)${removed > 0 ? ` (${removed} stale tokens removed)` : ''}.`
       : failed > 0
-        ? `Broadcast processed for ${subscriptions.length} devices (${failed} unreachable or awaiting client reconnection).`
+        ? `Broadcast processed: 0 sent (${webSent} Web, ${fcmSent} FCM), ${failed} unreachable or awaiting client reconnection.`
         : 'Broadcast completed.';
 
     return res.json({
       success: true,
       message: summaryMessage,
-      sent,
+      webSent,
+      fcmSent,
+      sent: totalSent,
+      removed,
       failed,
-      purged,
       total: subscriptions.length,
     });
   } catch (error: any) {

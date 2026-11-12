@@ -381,7 +381,17 @@
     1. In `server/sync/d1Publisher.ts`, implemented `publishArticlesBatchToD1` which utilizes Cloudflare Worker's atomic `POST /internal/bulk` endpoint to sync up to 25 articles in a single HTTP request with an atomic `env.DB.batch` transaction, and updates Neon with `UPDATE articles ... WHERE id = ANY($1::text[])`.
     2. Implemented concurrent chunk processing (concurrency 5) for drafts/unpublishes and automated single-item fallback if a batch has validation issues.
     3. Lowered `TIMEOUT_MS` to 5000ms and `MAX_ATTEMPTS` to 2 for responsive failure handling without hanging connections.
-    4. In `server/api/adminArticles.ts`, executed D1 edge sync and R2 storage sync in parallel via `Promise.all`, halving editorial save latency.
+- [x] **Bug ID & Summary:** BUG-070 — Push Broadcast Conflating WebPush and FCM Payloads with Missing Batching and Unhandled Token Pruning.
+  - **Root Cause:**
+    1. In `src/server/pushNotifications.ts`, `handleBroadcast` processed subscriptions in batches of 25 through a single loop that attempted web-push and individual `messaging.send()` calls with a `notification` payload, which conflicted with custom Android client notification builders and lacked high-throughput FCM batching.
+    2. Invalid or unregistered FCM tokens were not cleanly pruned from Neon `push_subscriptions`, leaving stale rows that repeatedly failed on every broadcast.
+    3. The admin UI audience counter and broadcast response did not distinguish between web-push devices and Android FCM devices.
+  - **Permanent Guardrail:**
+    1. In `src/server/pushNotifications.ts`, explicitly partition subscriptions into Web-Push and FCM rows (`endpoint.startsWith('fcm:')`).
+    2. FCM tokens dispatch data-only messages in batches of 500 via Firebase Admin `getMessaging().sendEach()` with `android: { priority: 'high' }` and all string values (`title, body, url, imageUrl`), omitting the `notification` object.
+    3. Error codes `messaging/registration-token-not-registered` and `messaging/invalid-registration-token` automatically execute `DELETE FROM push_subscriptions WHERE endpoint = 'fcm:' + token`, leaving other errors intact.
+    4. Surface `fcmCount` and `webCount` in subscriber count APIs and report `(webSent, fcmSent, removed, failed)` in both broadcast JSON and UI alert messages.
+    5. Gracefully fallback if Firebase Admin messaging is unavailable: log one warning, skip FCM rows, and continue sending web-push.
 
 
 

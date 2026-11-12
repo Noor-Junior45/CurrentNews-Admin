@@ -406,16 +406,16 @@
   - `index.html`: Completely removed the WebSocket / unhandled rejection shim script.
   - Verified with `npx tsc --noEmit` (0 errors), `npm run build`, `compile_applet`, and `lint_applet`.
 
-- **Phase 56 (Fast Cloudflare D1 Batch Sync & Concurrent Pipeline Optimization):** [COMPLETED]
-  - Diagnosed root causes of Cloudflare sync latency: serial `for (const row of rows)` execution across outbox items (50 sequential HTTP requests + SQL updates taking 20-30s), excessive network timeout (10s per attempt with 3 sequential backoff retries holding connections for up to 31.5s on slow edge workers), and inline serial dual-write on article save (awaiting D1 and R2 sequentially).
-  - Implemented `publishArticlesBatchToD1` in `server/sync/d1Publisher.ts` utilizing the Worker's atomic `/internal/bulk` endpoint (syncing up to 25 articles per HTTP round-trip in a single D1 transaction), reducing 50-article outbox sync time from ~25s down to <500ms.
-  - Added concurrent chunk fallback (concurrency of 5) for drafts/unpublishes and validation fallback, and updated batch database status with a single `UPDATE articles ... WHERE id = ANY($1::text[])`.
-  - Calibrated `TIMEOUT_MS` to 5000ms and `MAX_ATTEMPTS` to 2 for responsive edge failure recovery.
-  - Parallelized live D1 sync and legacy R2 sync via `Promise.all` in `handleAdminCreateOrUpdateArticle` (`server/api/adminArticles.ts`), halving article save latency.
+- **Phase 57 (Push Notification FCM Batch sendEach & Web-Push Dual Split):** [COMPLETED]
+  - Split Neon `push_subscriptions` rows into web-push rows and FCM rows (`endpoint.startsWith('fcm:')`).
+  - Implemented Firebase Admin Messaging `getMessaging().sendEach()` for FCM tokens in batches of 500, delivering data-only payloads (`data = { title, body, url, imageUrl }`) with `android: { priority: 'high' }` and no `notification` field.
+  - Implemented automatic pruning of invalid/unregistered FCM tokens (`messaging/registration-token-not-registered` or `messaging/invalid-registration-token`) from `push_subscriptions`, leaving all other errors intact.
+  - Surfaced `fcmCount` and `webCount` in subscriber count queries, audience badge, and broadcast response (`webSent, fcmSent, removed, failed`), and displayed both counts in the admin UI ping message.
+  - Preserved graceful fallback: if Firebase Admin messaging is unavailable, logs one warning, skips FCM rows, and delivers web-push without interruption.
   - Verified with `npx tsc --noEmit` (0 errors), `npm run build`, `compile_applet`, and `lint_applet`.
 
 ## 4. Immediate Next Step
-- Admin editorial desk fully verified with high-speed outbox synchronization on Cloud Run container runtime.
+- Admin editorial desk fully verified with dual-protocol Web/FCM batch broadcasting on Cloud Run container runtime.
 
 
 

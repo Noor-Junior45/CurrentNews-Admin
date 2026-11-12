@@ -27,6 +27,8 @@ export default function AudienceRegistryView(): React.JSX.Element {
   const navigate = useNavigate();
 
   const [pushDeviceCount, setPushDeviceCount] = useState<number | null>(null);
+  const [fcmDeviceCount, setFcmDeviceCount] = useState<number | null>(null);
+  const [webDeviceCount, setWebDeviceCount] = useState<number | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Push devices list state
@@ -95,12 +97,16 @@ export default function AudienceRegistryView(): React.JSX.Element {
       const res = await adminFetch<{
         success?: boolean;
         count: number;
+        fcmCount?: number;
+        webCount?: number;
         devices: Array<{ id: string; endpoint: string; userAgent: string; createdAt: string }>;
       }>('/api/admin/push/devices');
 
       if (res.ok && res.data?.devices) {
         setPushDevices(res.data.devices);
         setPushDeviceCount(res.data.count ?? res.data.devices.length);
+        if (typeof res.data.fcmCount === 'number') setFcmDeviceCount(res.data.fcmCount);
+        if (typeof res.data.webCount === 'number') setWebDeviceCount(res.data.webCount);
       } else {
         fetchPushCount();
       }
@@ -114,9 +120,16 @@ export default function AudienceRegistryView(): React.JSX.Element {
 
   const fetchPushCount = async () => {
     try {
-      const res = await adminFetch<{ success?: boolean; count: number }>('/api/admin/push/subscribers-count');
+      const res = await adminFetch<{
+        success?: boolean;
+        count: number;
+        fcmCount?: number;
+        webCount?: number;
+      }>('/api/admin/push/subscribers-count');
       if (res.ok && res.data && typeof res.data.count === 'number') {
         setPushDeviceCount(res.data.count);
+        if (typeof res.data.fcmCount === 'number') setFcmDeviceCount(res.data.fcmCount);
+        if (typeof res.data.webCount === 'number') setWebDeviceCount(res.data.webCount);
         return;
       }
       const count = await api.getPushSubscriberCount();
@@ -319,10 +332,16 @@ export default function AudienceRegistryView(): React.JSX.Element {
       });
 
       if (ok && data?.success) {
-        const sentCount = data.sent || 0;
-        const msg = sentCount > 0
-          ? `Dispatched successfully to ${sentCount} active device(s) via Cloud Messaging.`
-          : (data.message || 'Ping broadcast processed. (No active device subscriptions found).');
+        const webSent = typeof data.webSent === 'number' ? data.webSent : 0;
+        const fcmSent = typeof data.fcmSent === 'number' ? data.fcmSent : 0;
+        const totalSent = typeof data.sent === 'number' ? data.sent : (webSent + fcmSent);
+        const removedCount = typeof data.removed === 'number' ? data.removed : 0;
+        const failedCount = typeof data.failed === 'number' ? data.failed : 0;
+
+        const msg = totalSent > 0
+          ? `Dispatched successfully to ${totalSent} active device(s) (${webSent} Web, ${fcmSent} FCM)${removedCount > 0 ? ` • ${removedCount} stale token(s) removed` : ''}${failedCount > 0 ? ` • ${failedCount} failed` : ''}.`
+          : (data.message || `Broadcast completed: 0 sent (${webSent} Web, ${fcmSent} FCM).`);
+
         setPingFeedback({
           status: 'success',
           message: msg
@@ -393,6 +412,11 @@ export default function AudienceRegistryView(): React.JSX.Element {
                   <span className="text-xs font-bold text-slate-800 dark:text-slate-100 font-mono">
                     {pushDeviceCount !== null ? pushDeviceCount : '0'}
                   </span>
+                  {fcmDeviceCount !== null && webDeviceCount !== null && (
+                    <span className="text-[10px] text-amber-800 dark:text-amber-300 font-mono border-l border-amber-200 dark:border-amber-800 pl-1.5 ml-0.5">
+                      {webDeviceCount} Web • {fcmDeviceCount} FCM
+                    </span>
+                  )}
                   <button
                     type="button"
                     onClick={fetchPushDevices}
@@ -478,9 +502,10 @@ export default function AudienceRegistryView(): React.JSX.Element {
               ) : (
                 <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
                   {pushDevices.map((device) => {
-                    const isAndroid = /android/i.test(device.userAgent);
-                    const isApple = /iphone|ipad|macintosh/i.test(device.userAgent);
-                    const isWindows = /windows/i.test(device.userAgent);
+                    const isFcm = device.endpoint.startsWith('fcm:');
+                    const isAndroid = isFcm || /android/i.test(device.userAgent);
+                    const isApple = !isFcm && /iphone|ipad|macintosh/i.test(device.userAgent);
+                    const isWindows = !isFcm && /windows/i.test(device.userAgent);
 
                     return (
                       <div
@@ -500,8 +525,13 @@ export default function AudienceRegistryView(): React.JSX.Element {
                             )}
                           </div>
                           <div className="min-w-0 flex-1">
-                            <p className="font-semibold text-slate-900 dark:text-slate-100 truncate">
-                              {device.userAgent.length > 50 ? device.userAgent.slice(0, 50) + '...' : device.userAgent}
+                            <p className="font-semibold text-slate-900 dark:text-slate-100 truncate flex items-center gap-1.5">
+                              <span>{isFcm && !device.userAgent.includes('Android') ? 'Android App Device' : (device.userAgent.length > 50 ? device.userAgent.slice(0, 50) + '...' : device.userAgent)}</span>
+                              {isFcm && (
+                                <span className="text-[9px] bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-300 px-1.5 py-0.2 rounded font-mono font-medium">
+                                  FCM
+                                </span>
+                              )}
                             </p>
                             <div className="flex items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
                               <span className="font-mono truncate max-w-[200px]" title={device.endpoint}>
