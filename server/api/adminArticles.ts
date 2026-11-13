@@ -1038,34 +1038,179 @@ export async function handleAdminDeleteArticle(req: Request, res: Response) {
   return res.status(200).json({ success: true, message: 'Article removed' });
 }
 
+const penNameBodySchema = z.object({
+  penName: z
+    .string()
+    .trim()
+    .min(1, 'Pen name is required')
+    .max(100, 'Pen name cannot exceed 100 characters'),
+});
+
+/**
+ * GET /api/admin/pen-name
+ * Returns authenticated staff member's pen_name from Neon staff table (single source of truth).
+ */
+export async function handleAdminGetPenName(req: Request, res: Response) {
+  if (!req.user?.uid) {
+    return res.status(401).json({ success: false, error: 'Unauthorized', code: 'no_token' });
+  }
+
+  if (!isNeonConfigured()) {
+    return res.status(200).json({ success: true, penName: null });
+  }
+
+  try {
+    const result = await query<{ pen_name: string | null }>(
+      'SELECT pen_name FROM staff WHERE uid = $1',
+      [req.user.uid]
+    );
+    return res.status(200).json({
+      success: true,
+      penName: result.rows[0]?.pen_name || null,
+    });
+  } catch (err: any) {
+    console.error('[Admin API] Get pen name error:', err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to load pen name from database',
+    });
+  }
+}
+
+/**
+ * PUT /api/admin/pen-name
+ * Updates only the caller's own staff.pen_name using verified token identity (never accepts uid from body).
+ */
+export async function handleAdminPutPenName(req: Request, res: Response) {
+  if (!req.user?.uid) {
+    return res.status(401).json({ success: false, error: 'Unauthorized', code: 'no_token' });
+  }
+
+  if (req.user.role !== 'admin' && req.user.role !== 'writer') {
+    return res.status(403).json({
+      success: false,
+      error: 'Forbidden: Valid staff role required (admin or writer)',
+      code: 'forbidden',
+    });
+  }
+
+  const parsed = penNameBodySchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({
+      success: false,
+      error: parsed.error.issues[0]?.message || 'Invalid pen name',
+    });
+  }
+
+  const penName = parsed.data.penName;
+
+  if (!isNeonConfigured()) {
+    return res.status(503).json({
+      success: false,
+      error: 'Database is not configured; cannot persist pen name.',
+    });
+  }
+
+  try {
+    const updateRes = await query<{ pen_name: string | null }>(
+      'UPDATE staff SET pen_name = $1 WHERE uid = $2 RETURNING pen_name',
+      [penName, req.user.uid]
+    );
+
+    if ((updateRes.rowCount ?? updateRes.rows.length) > 0) {
+      return res.status(200).json({
+        success: true,
+        penName: updateRes.rows[0]?.pen_name || penName,
+      });
+    }
+
+    const email = (req.user.email || '').trim().toLowerCase();
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        error: 'Token has no email address',
+      });
+    }
+
+    const role = req.user.role === 'admin' ? 'admin' : 'writer';
+    const insertRes = await query<{ pen_name: string | null }>(
+      `INSERT INTO staff (uid, email, role, pen_name)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (uid) DO UPDATE
+         SET pen_name = EXCLUDED.pen_name
+       RETURNING pen_name`,
+      [req.user.uid, email, role, penName]
+    );
+
+    return res.status(200).json({
+      success: true,
+      penName: insertRes.rows[0]?.pen_name || penName,
+    });
+  } catch (err: any) {
+    console.error('[Admin API] Update pen name error:', err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to save pen name to database',
+    });
+  }
+}
+
 /**
  * GET /api/admin/me
- * Returns authenticated staff identity and role, and automatically syncs the user to Neon.
+ * Returns authenticated staff identity, role, and saved penName, and syncs user to Neon without overwriting existing pen_name.
  */
 export async function handleAdminGetMe(req: Request, res: Response) {
   if (!req.user) {
     return res.status(401).json({ success: false, error: 'Unauthorized', code: 'no_token' });
   }
 
-  // Automatically record / sync logged in user into Neon database (staff table)
+  let penName: string | null = null;
+
+  // Automatically record / sync logged in user into Neon database (staff table) without overwriting existing pen_name
   if (req.user.uid && req.user.email && isNeonConfigured()) {
-    const role = req.user.role === 'writer' ? 'writer' : 'admin';
-    query(
-      `INSERT INTO staff (uid, email, role, pen_name)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (uid) DO UPDATE
-         SET email = EXCLUDED.email,
-             role = EXCLUDED.role,
-             pen_name = COALESCE(EXCLUDED.pen_name, staff.pen_name)`,
-      [req.user.uid, req.user.email, role, req.user.name || null]
-    ).catch(err => console.debug('[Neon Staff Sync on Me]:', err?.message));
+    if (req.user.role === 'admin' || req.user.role === 'writer') {
+      const role = req.user.role === 'admin' ? 'admin' : 'writer';
+      const emailLower = req.user.email.trim().toLowerCase();
+      try {
+        const canInsertStaff = await hasTablePrivilege('staff', 'INSERT');
+        if (canInsertStaff) {
+          const upsertRes = await query<{ pen_name: string | null }>(
+            `INSERT INTO staff (uid, email, role, pen_name)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (uid) DO UPDATE
+               SET email = EXCLUDED.email,
+                   role = EXCLUDED.role,
+                   pen_name = COALESCE(NULLIF(staff.pen_name, ''), EXCLUDED.pen_name)
+             RETURNING pen_name`,
+            [req.user.uid, emailLower, role, req.user.name || null]
+          );
+          penName = upsertRes.rows[0]?.pen_name || null;
+        } else {
+          const selectRes = await query<{ pen_name: string | null }>(
+            'SELECT pen_name FROM staff WHERE uid = $1',
+            [req.user.uid]
+          );
+          penName = selectRes.rows[0]?.pen_name || null;
+        }
+      } catch (err: any) {
+        console.debug('[Neon Staff Sync on Me]:', err?.message);
+        try {
+          const fallbackRes = await query<{ pen_name: string | null }>(
+            'SELECT pen_name FROM staff WHERE uid = $1',
+            [req.user.uid]
+          );
+          penName = fallbackRes.rows[0]?.pen_name || null;
+        } catch (_) {}
+      }
+    }
   }
 
   return res.status(200).json({
     success: true,
     uid: req.user.uid,
     role: req.user.role,
-    email: req.user.email
+    email: req.user.email,
+    penName,
   });
 }
 
@@ -1121,7 +1266,7 @@ export async function handleUserSync(req: Request, res: Response) {
 
   if (isNeonConfigured()) {
     try {
-      // Only write the caller's own row in the staff table
+      // Only write the caller's own row in the staff table without overwriting existing pen_name
       const canAccessStaff = await hasTablePrivilege('staff', 'INSERT');
       if (canAccessStaff) {
         await query(
@@ -1130,7 +1275,7 @@ export async function handleUserSync(req: Request, res: Response) {
            ON CONFLICT (uid) DO UPDATE
              SET email = EXCLUDED.email,
                  role = EXCLUDED.role,
-                 pen_name = COALESCE(EXCLUDED.pen_name, staff.pen_name)`,
+                 pen_name = COALESCE(NULLIF(staff.pen_name, ''), EXCLUDED.pen_name)`,
           [uid, email, role, penName]
         );
       }

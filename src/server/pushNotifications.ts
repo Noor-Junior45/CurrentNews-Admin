@@ -1,8 +1,9 @@
 import type { Request, Response } from 'express';
 import webpush from 'web-push';
 import { getMessaging } from 'firebase-admin/messaging';
-import { adminApp } from '../../server/auth/firebaseAdmin.ts';
+import { adminApp, getAdminProjectId } from '../../server/auth/firebaseAdmin.ts';
 import { query } from '../../server/db/neon.ts';
+import { classifyFcmError } from '../utils/pushErrorHelper.ts';
 
 // ---------------------------------------------------------------------------
 // VAPID keys — read from environment variables with dynamic fallback.
@@ -414,6 +415,9 @@ export async function handleBroadcast(req: Request, res: Response) {
       console.warn('[Push Service] Firebase Admin messaging initialization notice:', msgErr?.message || msgErr);
     }
 
+    let fcmPermissionDenied = false;
+    let fcmErrorMessage: string | null = null;
+
     if (fcmRows.length > 0) {
       if (!messaging) {
         // Broadcast must still work if Firebase Admin messaging is not available: log one warning, skip FCM rows
@@ -421,6 +425,11 @@ export async function handleBroadcast(req: Request, res: Response) {
       } else {
         const FCM_BATCH_SIZE = 500;
         for (let i = 0; i < fcmRows.length; i += FCM_BATCH_SIZE) {
+          if (fcmPermissionDenied) {
+            failed += fcmRows.slice(i).length;
+            break;
+          }
+
           const batch = fcmRows.slice(i, i + FCM_BATCH_SIZE);
           const validBatch: Array<{ token: string; endpoint: string }> = [];
 
@@ -459,22 +468,40 @@ export async function handleBroadcast(req: Request, res: Response) {
                 fcmSent++;
               } else {
                 const errCode = resp.error?.code || '';
-                if (
-                  errCode === 'messaging/registration-token-not-registered' ||
-                  errCode === 'messaging/invalid-registration-token'
-                ) {
+                const errMsg = resp.error?.message || String(resp.error || '');
+                const errKind = classifyFcmError(errCode, errMsg);
+
+                if (errKind === 'stale_token') {
                   // DELETE that row from push_subscriptions (endpoint = "fcm:" + token)
                   await dbDeleteSubscription('fcm:' + item.token).catch(() => {});
                   removed++;
+                } else if (errKind === 'iam_permission_denied') {
+                  if (!fcmPermissionDenied) {
+                    fcmPermissionDenied = true;
+                    const activeProjectId = getAdminProjectId() || 'configured Firebase project';
+                    fcmErrorMessage = `FCM permission denied for project ${activeProjectId}. Grant role roles/firebasecloudmessaging.admin to the runtime service account or set FIREBASE_SERVICE_ACCOUNT_JSON.`;
+                    console.info(`[Push Service] ${fcmErrorMessage}`);
+                  }
+                  failed += validBatch.length - idx;
+                  break;
                 } else {
                   failed++;
-                  console.warn(`[Push Service] FCM dispatch notice for token ${item.token.slice(0, 10)}...:`, resp.error?.message || resp.error);
+                  console.warn(`[Push Service] FCM dispatch notice for token ${item.token.slice(0, 10)}...:`, errMsg);
                 }
               }
             }
           } catch (batchErr: any) {
-            console.error('[Push Service] FCM sendEach batch error:', batchErr?.message || batchErr);
-            failed += validBatch.length;
+            const batchMsg = batchErr?.message || String(batchErr || '');
+            if (classifyFcmError(batchErr?.code, batchMsg) === 'iam_permission_denied') {
+              fcmPermissionDenied = true;
+              const activeProjectId = getAdminProjectId() || 'configured Firebase project';
+              fcmErrorMessage = `FCM permission denied for project ${activeProjectId}. Grant role roles/firebasecloudmessaging.admin to the runtime service account or set FIREBASE_SERVICE_ACCOUNT_JSON.`;
+              console.info(`[Push Service] ${fcmErrorMessage}`);
+              failed += validBatch.length;
+            } else {
+              console.warn('[Push Service] FCM sendEach batch notice:', batchMsg);
+              failed += validBatch.length;
+            }
           }
         }
       }
@@ -525,10 +552,12 @@ export async function handleBroadcast(req: Request, res: Response) {
 
     const totalSent = webSent + fcmSent;
     const summaryMessage = totalSent > 0
-      ? `Dispatched successfully to ${totalSent} active device(s) (${webSent} Web, ${fcmSent} FCM)${removed > 0 ? ` (${removed} stale tokens removed)` : ''}.`
-      : failed > 0
-        ? `Broadcast processed: 0 sent (${webSent} Web, ${fcmSent} FCM), ${failed} unreachable or awaiting client reconnection.`
-        : 'Broadcast completed.';
+      ? `Dispatched successfully to ${totalSent} active device(s) (${webSent} Web, ${fcmSent} FCM)${removed > 0 ? ` (${removed} stale tokens removed)` : ''}${fcmErrorMessage ? ` (${fcmErrorMessage})` : ''}.`
+      : fcmErrorMessage
+        ? `0 FCM sent (IAM permission missing). ${fcmErrorMessage}`
+        : failed > 0
+          ? `Broadcast processed: 0 sent (${webSent} Web, ${fcmSent} FCM), ${failed} unreachable or awaiting client reconnection.`
+          : 'Broadcast completed.';
 
     return res.json({
       success: true,
@@ -539,6 +568,7 @@ export async function handleBroadcast(req: Request, res: Response) {
       removed,
       failed,
       total: subscriptions.length,
+      ...(fcmPermissionDenied ? { fcmPermissionDenied: true, fcmError: fcmErrorMessage } : {}),
     });
   } catch (error: any) {
     console.error('[Push Service] Broadcast dispatch error:', error);

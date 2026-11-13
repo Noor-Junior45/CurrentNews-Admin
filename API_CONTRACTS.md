@@ -377,7 +377,20 @@ All `/api/admin/*` endpoints strictly require `Authorization: Bearer <ID_TOKEN>`
     "success": true,
     "uid": "...",
     "email": "you@example.com",
-    "role": "admin"
+    "role": "admin",
+    "penName": "Bureau Desk"
+  }
+  ```
+
+### `GET /api/admin/pen-name` & `PUT /api/admin/pen-name`
+- **Methods:** `GET`, `PUT` (`PUT` protected by `adminWriteLimiter`)
+- **Access:** Roles `admin`, `writer` (`requireRole('admin', 'writer')`)
+- **Validation (`PUT`):** `{ "penName": string }` (`trim`, min 1, max 100 chars via Zod). Ignores any `uid`, `email`, or `role` in body; updates only `req.user.uid` row in Neon `staff` (inserting using verified token claims if missing).
+- **Response Shape (200 OK):**
+  ```json
+  {
+    "success": true,
+    "penName": "Bureau Desk"
   }
   ```
 

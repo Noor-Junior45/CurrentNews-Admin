@@ -10,6 +10,7 @@ import RichTextEditor, { RichTextEditorHandle } from '../components/RichTextEdit
 import PhotoAttachmentSection from '../components/PhotoAttachmentSection';
 import { getCanonicalPostUrl } from '../utils/shareUrl';
 import { getAvailableWriters } from '../utils/writers';
+import { resolveDraftAuthorName } from '../utils/penNameHelper';
 import { updateDocumentSEO } from '../utils/seo';
 import { 
   CheckCircle, 
@@ -75,7 +76,8 @@ const POPULAR_TAGS = [
 ];
 
 export default function DraftPublicationView(): React.JSX.Element {
-  const { user, isAdmin } = useAuthState();
+  const { user, isAdmin, role } = useAuthState();
+  const isTrueAdmin = role === 'admin';
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const editingId = searchParams.get('id');
@@ -83,6 +85,7 @@ export default function DraftPublicationView(): React.JSX.Element {
   const [isEditing, setIsEditing] = useState(false);
   const [editingPost, setEditingPost] = useState<Post | null>(null);
   const [loadedVersion, setLoadedVersion] = useState<number>(1);
+  const [savedPenName, setSavedPenName] = useState<string | null>(null);
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
@@ -138,6 +141,44 @@ export default function DraftPublicationView(): React.JSX.Element {
     });
     window.scrollTo({ top: 0, behavior: 'instant' });
   }, [isEditing]);
+
+  // Load saved pen name from GET /api/admin/pen-name (Neon staff.pen_name is source of truth)
+  useEffect(() => {
+    let cancelled = false;
+    if (!user) {
+      setSavedPenName(null);
+      return;
+    }
+
+    api.getUserPenName()
+      .then((penName) => {
+        if (cancelled) return;
+        const clean = (penName || '').trim();
+        setSavedPenName(clean || null);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          console.debug('[DraftPublicationView] Could not load saved pen name:', err);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid]);
+
+  // Synchronize authorName when savedPenName, role, displayName, or editing state resolves
+  useEffect(() => {
+    setAuthorName(
+      resolveDraftAuthorName({
+        isAdminUser: isTrueAdmin,
+        savedPenName,
+        displayName: user?.displayName,
+        existingPostAuthorName: isEditing ? editingPost?.authorName : undefined,
+        fallbackAuthor: availableWriters[0] || 'Current News',
+      })
+    );
+  }, [isTrueAdmin, savedPenName, isEditing, editingPost?.authorName, user?.displayName]);
 
   // Load subscriber count for alert notice
   useEffect(() => {
@@ -200,7 +241,7 @@ export default function DraftPublicationView(): React.JSX.Element {
             setTargetStatus(p.status);
           }
 
-          if (p.authorName) {
+          if (p.authorName && isTrueAdmin) {
             setAuthorName(p.authorName);
           }
 
@@ -249,7 +290,14 @@ export default function DraftPublicationView(): React.JSX.Element {
     setEditingPost(null);
     setLoadedVersion(1);
     setTargetStatus('published');
-    setAuthorName(user?.displayName || availableWriters[0] || 'Current News');
+    setAuthorName(
+      resolveDraftAuthorName({
+        isAdminUser: isTrueAdmin,
+        savedPenName,
+        displayName: user?.displayName,
+        fallbackAuthor: availableWriters[0] || 'Current News',
+      })
+    );
     setPublishDate(getTodayDateString());
     setIsCustomDate(false);
   };
@@ -276,9 +324,13 @@ export default function DraftPublicationView(): React.JSX.Element {
     const filteredImageUrls = imageUrls.map(cleanImageUrl).filter(url => url.length > 0);
     const filteredImageUrlsFallback = imageUrlsFallback.map(cleanImageUrl).filter(url => url.length > 0);
 
-    const resolvedAuthor = (isEditing && editingPost?.authorName) 
-      ? editingPost.authorName 
-      : (authorName.trim() || user?.displayName || availableWriters[0] || 'Current News');
+    const resolvedAuthor = resolveDraftAuthorName({
+      isAdminUser: isTrueAdmin,
+      savedPenName,
+      displayName: user?.displayName,
+      existingPostAuthorName: isEditing ? editingPost?.authorName : undefined,
+      fallbackAuthor: authorName.trim() || availableWriters[0] || 'Current News',
+    });
 
     const resolvedDate = (() => {
       if (publishDate) {

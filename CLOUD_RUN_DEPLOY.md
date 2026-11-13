@@ -117,6 +117,9 @@ gcloud run services update currentnews-app \
   --region asia-southeast1 \
   --update-env-vars "R2_ACCOUNT_ID=YOUR_ID,R2_ACCESS_KEY_ID=YOUR_KEY,R2_SECRET_ACCESS_KEY=YOUR_SECRET,R2_BUCKET_NAME=YOUR_BUCKET"
 ```
+For Android FCM push broadcasts (`POST /api/admin/push/broadcast`):
+- If Cloud Run deploys in the same project as `firebase-applet-config.json` (`gen-lang-client-0638643565`), grant the Cloud Run service account **Firebase Cloud Messaging API Admin** (`roles/firebasecloudmessaging.admin`) so `cloudmessaging.messages.create` is permitted via ADC.
+- If running in a different GCP project or AI Studio preview sandbox, set `FIREBASE_SERVICE_ACCOUNT_JSON` (raw JSON or base64-encoded service account key from Firebase Console > Project Settings > Service Accounts).
 
 ## 5. Deploy Directly from GitHub to Cloud Run (Automated CI/CD)
 

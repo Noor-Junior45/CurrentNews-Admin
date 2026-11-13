@@ -14,6 +14,8 @@ import {
   applyOptimisticUpsertCount,
   parseArticlesCursor,
 } from './publicationsHelper';
+import { classifyFcmError } from './pushErrorHelper';
+import { isValidPenName, normalizePenNameInput, resolveDraftAuthorName } from './penNameHelper';
 import type { Post } from '../types';
 
 function createMemoryStorage() {
@@ -116,4 +118,86 @@ test('optimistic counts update accurately without going negative', () => {
     published: 8,
     drafts: 2,
   });
+});
+
+test('classifyFcmError separates stale tokens from IAM permission denials', () => {
+  assert.equal(
+    classifyFcmError('messaging/registration-token-not-registered', 'Requested entity was not found.'),
+    'stale_token'
+  );
+  assert.equal(
+    classifyFcmError('messaging/invalid-registration-token', 'Invalid registration token.'),
+    'stale_token'
+  );
+  assert.equal(
+    classifyFcmError(
+      'messaging/third-party-auth-error',
+      "Permission 'cloudmessaging.messages.create' denied on resource '//cloudresourcemanager.googleapis.com/projects/gen-lang-client-0638643565'"
+    ),
+    'iam_permission_denied'
+  );
+  assert.equal(
+    classifyFcmError(
+      undefined,
+      "Permission 'cloudmessaging.messages.create' denied on resource"
+    ),
+    'iam_permission_denied'
+  );
+  assert.equal(
+    classifyFcmError('messaging/internal-error', 'Temporary backend timeout'),
+    'token_failure'
+  );
+});
+
+test('penNameHelper validates pen names and resolves writer/admin authors cleanly', () => {
+  assert.equal(normalizePenNameInput('  Bureau Chief  '), 'Bureau Chief');
+  assert.equal(isValidPenName('   '), false);
+  assert.equal(isValidPenName('A'.repeat(101)), false);
+  assert.equal(isValidPenName('A'.repeat(100)), true);
+
+  // Non-admin writers always resolve to saved pen name even when editing another byline
+  assert.equal(
+    resolveDraftAuthorName({
+      isAdminUser: false,
+      savedPenName: 'Saved Writer Pen',
+      displayName: 'Writer Display',
+      existingPostAuthorName: 'Old Author',
+      fallbackAuthor: 'Current News',
+    }),
+    'Saved Writer Pen'
+  );
+
+  // Admins default to saved pen name for new drafts
+  assert.equal(
+    resolveDraftAuthorName({
+      isAdminUser: true,
+      savedPenName: 'Admin Byline',
+      displayName: 'Admin Real Name',
+      fallbackAuthor: 'Current News',
+    }),
+    'Admin Byline'
+  );
+
+  // Admins fall back to displayName only when there is no saved pen name
+  assert.equal(
+    resolveDraftAuthorName({
+      isAdminUser: true,
+      savedPenName: null,
+      displayName: 'Admin Real Name',
+      fallbackAuthor: 'Current News',
+    }),
+    'Admin Real Name'
+  );
+
+  // Admins preserve existing post author while editing
+  assert.equal(
+    resolveDraftAuthorName({
+      isAdminUser: true,
+      savedPenName: 'Admin Byline',
+      displayName: 'Admin Real Name',
+      existingPostAuthorName: 'Field Correspondent',
+      fallbackAuthor: 'Current News',
+    }),
+    'Field Correspondent'
+  );
 });

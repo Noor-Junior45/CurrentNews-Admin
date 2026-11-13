@@ -1,11 +1,46 @@
-import { initializeApp, getApps, applicationDefault, getApp } from 'firebase-admin/app';
+import 'dotenv/config';
+import { initializeApp, getApps, applicationDefault, cert, getApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import fs from 'fs';
 import path from 'path';
 
+interface ParsedServiceAccount {
+  project_id?: string;
+  client_email?: string;
+  private_key?: string;
+}
+
+function parseServiceAccountFromEnv(): ParsedServiceAccount | null {
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();
+  if (!raw) return null;
+
+  try {
+    const jsonStr = raw.startsWith('{')
+      ? raw
+      : Buffer.from(raw, 'base64').toString('utf-8');
+    const parsed = JSON.parse(jsonStr);
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      typeof parsed.client_email === 'string' &&
+      typeof parsed.private_key === 'string'
+    ) {
+      return parsed as ParsedServiceAccount;
+    }
+  } catch (err: any) {
+    console.warn('[Firebase Admin] Failed to parse FIREBASE_SERVICE_ACCOUNT_JSON:', err?.message || err);
+  }
+  return null;
+}
+
+const serviceAccount = parseServiceAccountFromEnv();
+
 function resolveProjectId(): string {
   if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_PROJECT_ID.trim()) {
     return process.env.FIREBASE_PROJECT_ID.trim();
+  }
+  if (serviceAccount?.project_id && serviceAccount.project_id.trim()) {
+    return serviceAccount.project_id.trim();
   }
   if (process.env.GCLOUD_PROJECT && process.env.GCLOUD_PROJECT.trim()) {
     return process.env.GCLOUD_PROJECT.trim();
@@ -31,12 +66,11 @@ if (getApps().length === 0) {
   try {
     initializeApp({
       ...(projectId ? { projectId } : {}),
-      // Automatically uses Application Default Credentials (ADC) in Google Cloud Run and Google Cloud Shell
-      credential: applicationDefault()
+      credential: serviceAccount ? cert(serviceAccount as any) : applicationDefault(),
     });
   } catch (err: any) {
     // If ADC is not yet active in local non-GCP dev, fallback to projectId init so server boots cleanly
-    console.warn('[Firebase Admin] ADC initialization notice:', err?.message || err);
+    console.warn('[Firebase Admin] Credential initialization notice:', err?.message || err);
     try {
       if (projectId) {
         initializeApp({ projectId });

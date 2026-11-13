@@ -336,12 +336,14 @@ export default function AudienceRegistryView(): React.JSX.Element {
         const removedCount = typeof data.removed === 'number' ? data.removed : 0;
         const failedCount = typeof data.failed === 'number' ? data.failed : 0;
 
+        const fcmDenied = Boolean(data.fcmPermissionDenied);
+        const fcmErrorText = typeof data.fcmError === 'string' ? data.fcmError : '';
         const msg = totalSent > 0
-          ? `Dispatched successfully to ${totalSent} active device(s) (${webSent} Web, ${fcmSent} FCM)${removedCount > 0 ? ` • ${removedCount} stale token(s) removed` : ''}${failedCount > 0 ? ` • ${failedCount} failed` : ''}.`
+          ? `Dispatched successfully to ${totalSent} active device(s) (${webSent} Web, ${fcmSent} FCM)${removedCount > 0 ? ` • ${removedCount} stale token(s) removed` : ''}${failedCount > 0 ? ` • ${failedCount} failed` : ''}${fcmErrorText ? ` • ${fcmErrorText}` : ''}.`
           : (data.message || `Broadcast completed: 0 sent (${webSent} Web, ${fcmSent} FCM).`);
 
         setPingFeedback({
-          status: 'success',
+          status: totalSent === 0 && fcmDenied ? 'error' : 'success',
           message: msg
         });
         setPingMessage('');

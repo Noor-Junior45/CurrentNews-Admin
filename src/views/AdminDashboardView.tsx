@@ -74,25 +74,27 @@ export default function AdminDashboardView(): React.JSX.Element {
         console.debug('Admin me verify notice:', meError);
       }
 
-      // 1. Fetch user pen name (Worker D1 with local storage fallback)
+      // 1. Fetch user pen name (Neon staff.pen_name is source of truth; server wins over localStorage)
       try {
-        const cloudPenName = await api.getUserPenName();
-        if (cloudPenName) {
-          setGlobalPenName(cloudPenName);
-          setTempPenName(cloudPenName);
-          try {
-            localStorage.setItem(`current_news_pen_name_${user.uid}`, cloudPenName);
-            localStorage.setItem('current_news_pen_name_global', cloudPenName);
-          } catch (_) {}
-        }
-      } catch (err: any) {
-        console.debug('Could not load pen name from Worker D1, checking local storage:', err);
+        const serverPenName = await api.getUserPenName();
+        const resolvedPenName = serverPenName ? serverPenName.trim() : '';
+        setGlobalPenName(resolvedPenName);
+        setTempPenName(resolvedPenName);
         try {
-          const cached = localStorage.getItem(`current_news_pen_name_${user.uid}`) || localStorage.getItem('current_news_pen_name_global');
-          if (cached) {
-            setGlobalPenName(cached);
-            setTempPenName(cached);
+          if (resolvedPenName) {
+            localStorage.setItem(`current_news_pen_name_${user.uid}`, resolvedPenName);
+            localStorage.setItem('current_news_pen_name_global', resolvedPenName);
+          } else {
+            localStorage.removeItem(`current_news_pen_name_${user.uid}`);
+            localStorage.removeItem('current_news_pen_name_global');
           }
+        } catch (_) {}
+      } catch (err: any) {
+        console.debug('Could not load pen name from server, checking local cache:', err);
+        try {
+          const cached = localStorage.getItem(`current_news_pen_name_${user.uid}`) || localStorage.getItem('current_news_pen_name_global') || '';
+          setGlobalPenName(cached);
+          setTempPenName(cached);
         } catch (_) {}
       }
 
@@ -149,6 +151,7 @@ export default function AdminDashboardView(): React.JSX.Element {
 
   const handleSavePenName = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    if (isSavingPenName) return;
     if (!tempPenName.trim()) {
       setErrorMsg('Pen name cannot be empty.');
       return;
@@ -156,26 +159,32 @@ export default function AdminDashboardView(): React.JSX.Element {
     if (!user) return;
 
     const trimmed = tempPenName.trim();
+    if (trimmed.length > 100) {
+      setErrorMsg('Pen name cannot exceed 100 characters.');
+      return;
+    }
+
     setIsSavingPenName(true);
     setErrorMsg(null);
     setSuccessMsg(null);
 
-    // Save to local cache first so UI updates immediately
     try {
-      localStorage.setItem(`current_news_pen_name_${user.uid}`, trimmed);
-      localStorage.setItem('current_news_pen_name_global', trimmed);
-    } catch (_) {}
-
-    try {
-      await api.setUserPenName(trimmed);
+      const saved = await api.setUserPenName(trimmed);
+      if (!saved) {
+        throw new Error('Failed to save pen name to database.');
+      }
       setGlobalPenName(trimmed);
+      setTempPenName(trimmed);
+      try {
+        localStorage.setItem(`current_news_pen_name_${user.uid}`, trimmed);
+        localStorage.setItem('current_news_pen_name_global', trimmed);
+      } catch (_) {}
       setIsEditingPenName(false);
       setSuccessMsg('Author byline pen name saved successfully.');
     } catch (err: any) {
       console.error('Failed to save pen name:', err);
-      setGlobalPenName(trimmed);
-      setIsEditingPenName(false);
-      setErrorMsg('Could not save pen name to database. Saved in local cache.');
+      setSuccessMsg(null);
+      setErrorMsg(err?.message || 'Failed to save pen name to database.');
     } finally {
       setIsSavingPenName(false);
     }

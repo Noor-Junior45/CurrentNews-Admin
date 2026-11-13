@@ -426,15 +426,17 @@
   - Fixed critical cursor parsing bug in `server/api/adminArticles.ts` (`parseArticlesCursor` splitting on the first underscore so underscore-containing article IDs work on page 2+) and returned `counts: { all, published, drafts }` on initial page load.
   - Purged 13 dead/duplicate files and cleaned unused imports/variables across server and UI modules, passing `npx tsc --noEmit --noUnusedLocals --noUnusedParameters` and `6/6` `node:test` unit assertions.
 
+- **Phase 60 (FCM Service Account Support, Broadcast Title Update & IAM Permission Guard):** [COMPLETED]
+  - Updated push broadcast title default from `"Current News Alert"` to `"Current News"` in `AudienceRegistryView.tsx` and `src/server/pushNotifications.ts`.
+  - Added `dotenv/config` preloading and `FIREBASE_SERVICE_ACCOUNT_JSON` (raw or base64 JSON `cert()`) support in `server/auth/firebaseAdmin.ts` for cross-project FCM authorization.
+  - Created `src/utils/pushErrorHelper.ts` (`classifyFcmError`) so `cloudmessaging.messages.create` IAM denials halt per-token error spam, keep valid FCM tokens intact, continue WebPush dispatch, and report clear setup remediation in the UI (`BUG-074`).
+
+- **Phase 61 (Author Pen Name Single Source of Truth in Neon `staff.pen_name`):** [COMPLETED]
+  - Added Zod-validated `GET /api/admin/pen-name` and rate-limited (`PUT /api/admin/*`) `PUT /api/admin/pen-name` endpoints in `server/api/adminArticles.ts` and `server.ts`, strictly scoped to verified `req.user.uid` (ignoring client-supplied `uid`/`role`).
+  - Updated `handleAdminGetMe` and `handleUserSync` upserts to use `COALESCE(NULLIF(staff.pen_name, ''), EXCLUDED.pen_name)` and returned `penName` in `GET /api/admin/me`.
+  - Updated `src/utils/api.ts` (`getUserPenName`, `setUserPenName`) to use `adminFetch` against same-origin `/api/admin/pen-name` instead of Worker `/user/pen-name`.
+  - Fixed `AdminDashboardView.tsx` so server `penName` always overrides `localStorage` on load and failed saves display errors without faking success.
+  - Added `src/utils/penNameHelper.ts` (`resolveDraftAuthorName`) and wired `DraftPublicationView.tsx` to load `/api/admin/pen-name`, enforcing saved pen name for non-admin writers and defaulting admins to saved pen name before `displayName`.
+
 ## 4. Immediate Next Step
 - Admin editorial desk fully verified on Cloud Run container runtime.
-
-
-
-
-
-
-
-
-
-

@@ -37,6 +37,8 @@ import {
   handleAdminGetArticleById,
   handleAdminDeleteArticle,
   handleAdminGetMe,
+  handleAdminGetPenName,
+  handleAdminPutPenName,
   handleAdminRunSync,
   handleAdminSyncTick,
   handleAdminGetUsers,
@@ -134,7 +136,7 @@ async function startServer() {
   });
   app.use('/api/', apiLimiter);
 
-  // 20 req / 15 min on /api/admin/* writes (POST/DELETE) and /api/upload
+  // 20 req / 15 min on /api/admin/* writes (POST/PUT/DELETE) and /api/upload
   const adminWriteLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 20,
@@ -142,6 +144,7 @@ async function startServer() {
     legacyHeaders: false,
   });
   app.post('/api/admin/*', adminWriteLimiter);
+  app.put('/api/admin/*', adminWriteLimiter);
   app.delete('/api/admin/*', adminWriteLimiter);
   app.post('/api/upload', adminWriteLimiter);
 
@@ -394,6 +397,8 @@ async function startServer() {
   app.get('/api/admin/articles/:id', requireRole('admin', 'writer'), asyncHandler(handleAdminGetArticleById));
   app.delete('/api/admin/articles/:id', requireRole('admin', 'writer'), asyncHandler(handleAdminDeleteArticle));
   app.get('/api/admin/me', requireRole('admin', 'writer'), asyncHandler(handleAdminGetMe));
+  app.get('/api/admin/pen-name', requireRole('admin', 'writer'), asyncHandler(handleAdminGetPenName));
+  app.put('/api/admin/pen-name', requireRole('admin', 'writer'), asyncHandler(handleAdminPutPenName));
   app.post('/api/admin/sync/run', requireRole('admin'), asyncHandler(handleAdminRunSync));
   app.post('/api/admin/sync-tick', asyncHandler(handleAdminSyncTick));
 

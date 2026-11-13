@@ -17,7 +17,7 @@ export const API_BASE = (((import.meta as any).env?.VITE_API_BASE as string) || 
 /**
  * Retrieve current user's Firebase ID token if signed in
  */
-import { formatAuthErrorMessage } from './adminFetch';
+import { adminFetch, formatAuthErrorMessage } from './adminFetch';
 
 async function getIdToken(forceRefresh = false): Promise<string | null> {
   try {
@@ -237,24 +237,33 @@ export const api = {
   },
 
   /**
-   * Fetch author pen name for current user
+   * Fetch author pen name for current user from admin server (/api/admin/pen-name)
    */
   async getUserPenName(): Promise<string | null> {
-    if (!auth.currentUser) return null;
-    const { data } = await apiFetch<{ penName: string | null }>('/user/pen-name');
+    const { ok, data, error, code } = await adminFetch<{ success?: boolean; penName?: string | null }>('/api/admin/pen-name');
+    if (!ok) {
+      if (code === 'signing_in') return null;
+      throw new Error(error || 'Failed to fetch pen name');
+    }
     return data?.penName || null;
   },
 
   /**
-   * Save author pen name for current user
+   * Save author pen name for current user on admin server (/api/admin/pen-name)
    */
   async setUserPenName(penName: string): Promise<boolean> {
-    if (!auth.currentUser) return false;
-    const { data } = await apiFetch<{ success: boolean }>('/user/pen-name', {
-      method: 'PUT',
-      body: JSON.stringify({ penName: (penName || '').trim() }),
-    });
-    return Boolean(data?.success);
+    const trimmed = (penName || '').trim();
+    const { ok, data, error } = await adminFetch<{ success?: boolean; penName?: string; error?: string }>(
+      '/api/admin/pen-name',
+      {
+        method: 'PUT',
+        body: JSON.stringify({ penName: trimmed }),
+      }
+    );
+    if (!ok || !data?.success) {
+      throw new Error(error || data?.error || 'Failed to save pen name to database');
+    }
+    return true;
   },
 
   /**

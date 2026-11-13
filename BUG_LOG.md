@@ -419,6 +419,25 @@
     2. Ignore request body `email` for non-admin users, subscribing `user.email.toLowerCase()` exclusively.
     3. Allow `isAdmin(user)` callers to subscribe a `body.email` override only after passing `EMAIL_REGEX` and `<= 254` length validation, and always return `'Cache-Control': 'no-store'`.
 
+- [x] **Bug ID & Summary:** BUG-074 — FCM Broadcast Failing Per Token with `Permission 'cloudmessaging.messages.create' denied` in Cross-Project ADC Environments.
+  - **Root Cause:**
+    1. In AI Studio / cross-project runtime sandboxes, Application Default Credentials belong to the sandbox project (`ais-sandbox@...`) rather than Firebase project `gen-lang-client-0638643565`, lacking IAM permission `cloudmessaging.messages.create`, while `server/auth/firebaseAdmin.ts` had no support for `FIREBASE_SERVICE_ACCOUNT_JSON` (and loaded before `dotenv.config()`).
+    2. `src/server/pushNotifications.ts` logged a separate `[Push Service]` warning with the troubleshooter URL for every token on IAM permission failures, did not halt remaining FCM batches, and returned a misleading unreachable-devices message to `AudienceRegistryView.tsx`.
+  - **Permanent Guardrail:**
+    1. Load `dotenv/config` at the top of `server/auth/firebaseAdmin.ts` and support `FIREBASE_SERVICE_ACCOUNT_JSON` (raw or base64 service account JSON via `cert()`), falling back cleanly to `applicationDefault()`.
+    2. Use `classifyFcmError` (`src/utils/pushErrorHelper.ts`) to detect `iam_permission_denied`, halt subsequent FCM tokens immediately for that broadcast, preserve valid FCM rows, still deliver Web Push rows, and surface actionable remediation guidance once.
+
+- [x] **Bug ID & Summary:** BUG-075 — Author Pen Name Split-Brain Between Worker D1, localStorage Fake Successes, and Overwriting Staff Upserts.
+  - **Root Cause:**
+    1. `getUserPenName`/`setUserPenName` in `src/utils/api.ts` called the external Worker `/user/pen-name` instead of Neon `staff.pen_name`, and returned `false` instead of throwing on failure.
+    2. `AdminDashboardView.tsx` wrote `localStorage` before awaiting the server and showed `"saved"` even if the backend call failed, while stale `localStorage` persisted on load when the server had no pen name.
+    3. `handleAdminGetMe` and `handleUserSync` used `COALESCE(EXCLUDED.pen_name, staff.pen_name)`, allowing OAuth display name syncs to overwrite customized pen names.
+    4. `DraftPublicationView.tsx` defaulted to `user.displayName` instead of loading from `GET /api/admin/pen-name`, and conflated writers with admins when resolving author identity.
+  - **Permanent Guardrail:**
+    1. Serve `GET /api/admin/pen-name` and rate-limited (`PUT /api/admin/*`) `PUT /api/admin/pen-name` strictly from Neon `staff.pen_name` scoped to verified `req.user.uid`.
+    2. All staff upsert statements in `server/api/adminArticles.ts` must preserve existing non-empty pen names via `COALESCE(NULLIF(staff.pen_name, ''), EXCLUDED.pen_name)`, and `GET /api/admin/me` returns `penName`.
+    3. Route `api.ts` pen name methods to `/api/admin/pen-name`, throw on failure, prioritize server `penName` over `localStorage` on dashboard load without faking failed saves, and resolve `DraftPublicationView.tsx` authors via `resolveDraftAuthorName`.
+
 
 
 
