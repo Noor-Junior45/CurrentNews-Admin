@@ -41,3 +41,15 @@ export function slugify(text: string): string {
     .replace(/^-+/, '')             // Trim - from start of text
     .replace(/-+$/, '');            // Trim - from end of text
 }
+
+export function toSafeSlug(value: string): string {
+  if (!value) return '';
+  return value
+    .toString()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 100)
+    .replace(/-+$/, '');
+}

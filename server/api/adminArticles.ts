@@ -6,7 +6,7 @@ import { query, isNeonConfigured, hasTablePrivilege } from '../db/neon.ts';
 import { adminAuth } from '../auth/firebaseAdmin.ts';
 import { verifyFirebaseTokenSafely } from '../auth/tokenVerifier.ts';
 import { saveArticleToR2, deleteArticleFromR2, getFeedFromR2, loadLocalFeed, extractPlainExcerpt, getArticleFromR2 } from '../../src/server/r2Articles.ts';
-import { slugify } from '../../src/types.ts';
+import { slugify, toSafeSlug } from '../../src/types.ts';
 import { syncSingleArticle, unpublishArticleFromD1, syncPendingArticles, isD1SyncConfigured } from '../sync/d1Publisher.ts';
 
 const ALLOWED_CATEGORIES = [
@@ -326,8 +326,14 @@ export async function handleAdminCreateOrUpdateArticle(req: Request, res: Respon
   }
 
   const articleId = data.id || ('post_' + Date.now() + '_' + crypto.randomBytes(4).toString('hex'));
-  const rawSlug = slugify(data.title) || articleId;
-  let slug = `${rawSlug}-${articleId.slice(-6)}`;
+  const rawSlug = toSafeSlug(slugify(data.title)) || toSafeSlug(articleId) || 'post';
+  const idSuffix = toSafeSlug(articleId.slice(-6));
+  let slug = idSuffix
+    ? `${rawSlug.slice(0, 120 - 1 - idSuffix.length).replace(/-+$/, '')}-${idSuffix}`.replace(/^-+/, '')
+    : rawSlug.slice(0, 120);
+  if (!/^[a-z0-9-]{1,120}$/.test(slug)) {
+    slug = toSafeSlug(articleId).slice(0, 120) || crypto.randomBytes(4).toString('hex');
+  }
   const sanitizedContent = sanitizeArticleContent(data.content);
   const excerpt = extractPlainExcerpt(sanitizedContent, 200);
   const now = new Date();
@@ -398,7 +404,8 @@ export async function handleAdminCreateOrUpdateArticle(req: Request, res: Respon
       } catch (err: any) {
         if (err?.code === '23505') {
           // Slug UNIQUE constraint violation: retry once with random suffix
-          slug = `${slug}-${crypto.randomBytes(3).toString('hex')}`;
+          const retryHex = crypto.randomBytes(3).toString('hex');
+          slug = `${slug.slice(0, 120 - 1 - retryHex.length).replace(/-+$/, '')}-${retryHex}`.replace(/^-+/, '');
           try {
             dbRes = await executeInsert(slug);
           } catch (retryErr: any) {
@@ -507,7 +514,8 @@ export async function handleAdminCreateOrUpdateArticle(req: Request, res: Respon
       } catch (err: any) {
         if (err?.code === '23505') {
           // Slug UNIQUE constraint violation: retry once with random suffix
-          slug = `${slug}-${crypto.randomBytes(3).toString('hex')}`;
+          const retryHex = crypto.randomBytes(3).toString('hex');
+          slug = `${slug.slice(0, 120 - 1 - retryHex.length).replace(/-+$/, '')}-${retryHex}`.replace(/^-+/, '');
           try {
             dbRes = await executeUpdate(slug);
           } catch (retryErr: any) {

@@ -414,8 +414,14 @@
   - Preserved graceful fallback: if Firebase Admin messaging is unavailable, logs one warning, skips FCM rows, and delivers web-push without interruption.
   - Verified with `npx tsc --noEmit` (0 errors), `npm run build`, `compile_applet`, and `lint_applet`.
 
+- **Phase 58 (Worker-Safe Slug Normalization for Non-Latin Titles):** [COMPLETED]
+  - Added `toSafeSlug(value)` helper in `src/types.ts` (lowercases, replaces non-`[a-z0-9]` with `-`, collapses repeated `-`, trims boundary `-`, truncates to 100 chars).
+  - Updated `server/api/adminArticles.ts` to construct slugs from `toSafeSlug(slugify(data.title)) || toSafeSlug(articleId)` with sanitized ID/retry suffixes guaranteed to match `/^[a-z0-9-]{1,120}$/`.
+  - Updated `mapNeonToD1Article` in `server/sync/d1Publisher.ts` to run slugs through `toSafeSlug` (falling back to `toSafeSlug(row.id)`) before sending single or batch articles to Cloudflare Worker.
+  - Verified with `npx tsc --noEmit` (0 errors), `compile_applet`, and `lint_applet`.
+
 ## 4. Immediate Next Step
-- Admin editorial desk fully verified with dual-protocol Web/FCM batch broadcasting on Cloud Run container runtime.
+- Admin editorial desk fully verified on Cloud Run container runtime.
 
 
 

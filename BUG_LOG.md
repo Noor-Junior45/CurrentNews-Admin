@@ -393,6 +393,15 @@
     4. Surface `fcmCount` and `webCount` in subscriber count APIs and report `(webSent, fcmSent, removed, failed)` in both broadcast JSON and UI alert messages.
     5. Gracefully fallback if Firebase Admin messaging is unavailable: log one warning, skip FCM rows, and continue sending web-push.
 
+- [x] **Bug ID & Summary:** BUG-071 — Non-Latin (Hindi) Article Titles Falling Back to Underscore IDs and Failing Cloudflare Worker Slug Validation (HTTP 400).
+  - **Root Cause:**
+    1. In `server/api/adminArticles.ts`, `slugify(data.title) || articleId` fell back to raw `articleId` (containing underscores `_`) whenever a title had only non-Latin characters.
+    2. Cloudflare Worker `/internal/publish` and `/internal/bulk` strictly require slugs matching `/^[a-z0-9-]{1,120}$/`, rejecting underscores with HTTP 400.
+  - **Permanent Guardrail:**
+    1. Use `toSafeSlug(value)` in `src/types.ts` to normalize slugs strictly to `[a-z0-9-]` (max 100 chars).
+    2. Construct initial and collision-retry slugs in `server/api/adminArticles.ts` so they always match `/^[a-z0-9-]{1,120}$/`.
+    3. Sanitize every outgoing slug through `toSafeSlug` (falling back to `toSafeSlug(row.id)`) in `server/sync/d1Publisher.ts` before calling `/internal/publish` or `/internal/bulk`.
+
 
 
 

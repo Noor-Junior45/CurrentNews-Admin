@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { query, isNeonConfigured } from '../db/neon.ts';
+import { toSafeSlug } from '../../src/types.ts';
 
 const MAX_ATTEMPTS = 2;
 const TIMEOUT_MS = 5000;
@@ -126,9 +127,11 @@ export function mapNeonToD1Article(row: any): any {
     ?? toEpoch(row.created_at ?? row.createdAt)
     ?? Date.now();
 
+  const safeSlug = toSafeSlug(String(row.slug || '')) || toSafeSlug(String(row.id || '')) || 'post';
+
   return {
     id: row.id,
-    slug: row.slug,
+    slug: safeSlug,
     title: row.title,
     excerpt: row.excerpt || '',
     content: row.content,
