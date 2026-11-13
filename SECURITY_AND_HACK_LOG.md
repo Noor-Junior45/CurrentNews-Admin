@@ -101,3 +101,7 @@
       - Refactored `src/firebase.ts` to dynamically import configuration from `firebase-applet-config.json` with runtime environment variable overrides (`VITE_FIREBASE_API_KEY`, etc.), eliminating hardcoded API key string literals from source code.
       - Verified that `.env.example` contains purely blank placeholder variable names, with zero production secrets or values committed.
 
+24. **Vulnerability: Unauthenticated Arbitrary Email Subscription on Cloudflare Worker (`POST /subscribe`)**
+    - **Exploit Vector:** Unauthenticated callers could submit arbitrary third-party emails to `POST /subscribe` in `worker/src/index.ts` to spam, pollute, or enumerate D1 `subscribers`.
+    - **Defense:** Required `authenticateRequest(request, env)` with `user.emailVerified === true` and non-empty `user.email` (returning `401` with `Cache-Control: no-store`). Ignored any `body.email` for non-admin users so they only subscribe their verified `user.email.toLowerCase()`, and restricted validated `body.email` overrides (`EMAIL_REGEX`, max 254 chars) strictly to `isAdmin(user)`.
+

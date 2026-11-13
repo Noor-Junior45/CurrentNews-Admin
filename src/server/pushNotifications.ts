@@ -357,7 +357,7 @@ export async function handleBroadcast(req: Request, res: Response) {
     }
 
     const payload = JSON.stringify({
-      title: title || 'Current News Alert',
+      title: title || 'Current News',
       body: body || 'A new editorial dispatch has just been published.',
       url: url || '/',
       postId: postId || '',
@@ -440,7 +440,7 @@ export async function handleBroadcast(req: Request, res: Response) {
           const messages = validBatch.map((item) => ({
             token: item.token,
             data: {
-              title: String(title || ''),
+              title: String(title || 'Current News'),
               body: String(body || ''),
               url: articleUrl,
               imageUrl: notifImageUrl,

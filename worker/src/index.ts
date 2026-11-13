@@ -1369,18 +1369,47 @@ export default {
       }
 
       // -------------------------------------------------------------
-      // 6. POST /subscribe { email }
-      // Insert new subscriber with strict length and email regex validation
+      // 6. POST /subscribe { email? } (requires verified email auth)
+      // Normal users always subscribe their own verified token email.
+      // Admins may subscribe a validated body.email override.
       // -------------------------------------------------------------
       if (method === 'POST' && path === '/subscribe') {
-        const { data: body, error: bodyErr, status: bodyStatus } = await parseJsonBody(request, 16 * 1024);
-        if (bodyErr) {
-          return jsonResponse({ error: bodyErr }, bodyStatus || 400, corsHeaders);
+        const user = await authenticateRequest(request, env);
+        if (!user || !user.emailVerified || !user.email) {
+          return jsonResponse({ error: 'Unauthorized: Verified email required' }, 401, {
+            ...corsHeaders,
+            'Cache-Control': 'no-store',
+          });
         }
 
-        const email = (body?.email || '').trim().toLowerCase();
-        if (!email || email.length > 254 || !EMAIL_REGEX.test(email)) {
-          return jsonResponse({ error: 'Valid email address is required' }, 400, corsHeaders);
+        let targetEmail = user.email.toLowerCase();
+        if (isAdmin(user)) {
+          const { data: body, error: bodyErr, status: bodyStatus } = await parseJsonBody(request, 16 * 1024);
+          if (bodyErr) {
+            return jsonResponse({ error: bodyErr }, bodyStatus || 400, {
+              ...corsHeaders,
+              'Cache-Control': 'no-store',
+            });
+          }
+          if (body?.email !== undefined && body?.email !== null) {
+            const overrideEmail = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+            if (overrideEmail) {
+              if (overrideEmail.length > 254 || !EMAIL_REGEX.test(overrideEmail)) {
+                return jsonResponse({ error: 'Valid email address is required' }, 400, {
+                  ...corsHeaders,
+                  'Cache-Control': 'no-store',
+                });
+              }
+              targetEmail = overrideEmail;
+            }
+          }
+        }
+
+        if (!targetEmail || targetEmail.length > 254 || !EMAIL_REGEX.test(targetEmail)) {
+          return jsonResponse({ error: 'Valid email address is required' }, 400, {
+            ...corsHeaders,
+            'Cache-Control': 'no-store',
+          });
         }
 
         const nowMs = Date.now();
@@ -1388,10 +1417,13 @@ export default {
           `INSERT INTO subscribers (email, created_at) VALUES (?, ?)
            ON CONFLICT(email) DO NOTHING`
         )
-          .bind(email, nowMs)
+          .bind(targetEmail, nowMs)
           .run();
 
-        return jsonResponse({ success: true, message: 'Subscribed successfully' }, 200, corsHeaders);
+        return jsonResponse({ success: true, message: 'Subscribed successfully' }, 200, {
+          ...corsHeaders,
+          'Cache-Control': 'no-store',
+        });
       }
 
       // -------------------------------------------------------------

@@ -240,8 +240,11 @@
 
 ### `POST /subscribe`
 - **Method:** `POST`
-- **Body:** `{ "email": "user@example.com" }`
+- **Headers:** `Authorization: Bearer <Firebase_ID_Token>` (verified email required)
+- **Body:** `{ "email"?: "user@example.com" }` (ignored for non-admin users; admins may pass a validated override email)
+- **Response Headers:** `Cache-Control: no-store`
 - **Response Shape (200 OK):** `{ "success": true, "message": "Subscribed successfully" }`
+- **Errors:** `401 Unauthorized` (`{ "error": "Unauthorized: Verified email required" }`) when missing token, unverified email, or missing email claim.
 
 ### `GET /subscribe/check?email=user@example.com`
 - **Method:** `GET`
@@ -429,9 +432,10 @@ All `/api/admin/*` endpoints strictly require `Authorization: Bearer <ID_TOKEN>`
 - **Durable Object Coalescing:** Updates buffer in `StatsAggregator` with local SQLite storage persistence. Flush happens every 30s or on buffer threshold.
 
 ### `POST /subscribe`
-- **Payload:** `{ "email": string }` (trimmed, lowercased, max 254 chars, strict regex RFC-compliant)
-- **Response (200 OK):** `{"success": true}`
-- **Errors:** `400 Bad Request` on invalid email format or payload exceeding 16KB.
+- **Headers:** `Authorization: Bearer <idToken>` (`user.emailVerified === true` and `user.email` required; otherwise `401 { "error": "Unauthorized: Verified email required" }` with `Cache-Control: no-store`)
+- **Rules:** Standard users always subscribe `user.email.toLowerCase()` (any body `email` is ignored). Admins (`isAdmin(user)`) may subscribe a `body.email` override validated against `EMAIL_REGEX` and `<= 254` chars.
+- **Response (200 OK):** `{ "success": true, "message": "Subscribed successfully" }` with `Cache-Control: no-store`
+- **Errors:** `400 Bad Request` on invalid admin override email or JSON payload exceeding 16KB; `401 Unauthorized` without verified email auth.
 
 ### `POST /push/subscribe` & `DELETE /push/subscribe`
 - **Payload:** `{ "id": string, "subscription": object }`
@@ -543,7 +547,7 @@ All `/internal/*` routes require:
 - **Access:** `admin` custom claim role
 - **Payload:**
   ```json
-  { "title": "Current News Alert", "body": "...", "url": "/", "postId": "...", "image": "https://..." }
+  { "title": "Current News", "body": "...", "url": "/", "postId": "...", "image": "https://..." }
   ```
 - **Response Shape (200 OK):**
   ```json

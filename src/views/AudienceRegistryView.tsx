@@ -323,7 +323,7 @@ export default function AudienceRegistryView(): React.JSX.Element {
       const { ok, data, error: pingErr } = await adminFetch('/api/admin/push/broadcast', {
         method: 'POST',
         body: JSON.stringify({
-          title: 'Current News Alert',
+          title: 'Current News',
           body: pingMessage.trim() || 'A new editorial dispatch has just been published.',
           url: '/'
         })

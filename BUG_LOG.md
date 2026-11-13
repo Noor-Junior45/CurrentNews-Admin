@@ -412,6 +412,13 @@
     2. Keep `cachedAuthState.loading` initially `true` until Firebase resolves, read cached claims locally on session restore (`syncUserAuthState(user, false)`), and enforce `getAuthGuardViewState` so `loading === true` always renders the loading screen.
     3. Parse article cursors exclusively via `parseArticlesCursor(cursor)` (splitting strictly on the first underscore index) and compute DB status tab totals server-side on initial page requests (`!cursor`).
 
+- [x] **Bug ID & Summary:** BUG-073 — Unauthenticated POST /subscribe Allowing Arbitrary Email Injection in Cloudflare Worker.
+  - **Root Cause:** `POST /subscribe` in `worker/src/index.ts` previously accepted any `body.email` without calling `authenticateRequest(request, env)` or verifying `user.emailVerified`, allowing unauthenticated callers to spam or enumerate third-party email addresses into D1 `subscribers`.
+  - **Permanent Guardrail:**
+    1. Call `authenticateRequest(request, env)` at the start of `POST /subscribe` and reject missing user, `!user.emailVerified`, or missing `user.email` with `401 { error: 'Unauthorized: Verified email required' }`, `corsHeaders`, and `'Cache-Control': 'no-store'`.
+    2. Ignore request body `email` for non-admin users, subscribing `user.email.toLowerCase()` exclusively.
+    3. Allow `isAdmin(user)` callers to subscribe a `body.email` override only after passing `EMAIL_REGEX` and `<= 254` length validation, and always return `'Cache-Control': 'no-store'`.
+
 
 
 
