@@ -438,6 +438,12 @@
     2. All staff upsert statements in `server/api/adminArticles.ts` must preserve existing non-empty pen names via `COALESCE(NULLIF(staff.pen_name, ''), EXCLUDED.pen_name)`, and `GET /api/admin/me` returns `penName`.
     3. Route `api.ts` pen name methods to `/api/admin/pen-name`, throw on failure, prioritize server `penName` over `localStorage` on dashboard load without faking failed saves, and resolve `DraftPublicationView.tsx` authors via `resolveDraftAuthorName`.
 
+- [x] **Bug ID & Summary:** BUG-076 — Base64 `data:` Image URIs Saved to Neon Articles Table Failing Cloudflare Worker HTTPS Validation & Bloating DB.
+  - **Root Cause:** `handleAdminCreateOrUpdateArticle` in `server/api/adminArticles.ts` wrote `imageUrl`, `imageUrlFallback`, `imageUrls`, and `imageUrlsFallback` directly to Neon Postgres without uploading `data:image/*` URIs to R2 or rejecting non-HTTPS schemes (`http://`, `javascript:`, raw `data:`), causing Cloudflare Worker syncs to reject `"image_url must use https"` and inflating PostgreSQL rows.
+  - **Permanent Guardrail:**
+    1. Validate all 4 image fields before Neon persistence via `src/utils/articleImageHelper.ts` (`parseAndValidateBase64Image` allowing only `image/webp`, `image/jpeg`, `image/png` up to 5 MB without SVG/HTML payloads, and `normalizeAndValidateHttpsImageUrl` requiring strict `https://`).
+    2. Upload decoded image buffers via `uploadArticleImageBufferToR2` (`src/server/r2Articles.ts`) to `images/<articleId>/<random>.<ext>` using `R2_PUBLIC_DOMAIN`, throwing on failure so `handleAdminCreateOrUpdateArticle` returns HTTP `400` and never writes `data:` or non-HTTPS URLs to Postgres.
+
 
 
 

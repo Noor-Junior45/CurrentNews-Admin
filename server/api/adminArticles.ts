@@ -5,9 +5,10 @@ import sanitizeHtml from 'sanitize-html';
 import { query, isNeonConfigured, hasTablePrivilege } from '../db/neon.ts';
 import { adminAuth } from '../auth/firebaseAdmin.ts';
 import { verifyFirebaseTokenSafely } from '../auth/tokenVerifier.ts';
-import { saveArticleToR2, deleteArticleFromR2, getFeedFromR2, loadLocalFeed, extractPlainExcerpt, getArticleFromR2 } from '../../src/server/r2Articles.ts';
+import { saveArticleToR2, deleteArticleFromR2, getFeedFromR2, loadLocalFeed, extractPlainExcerpt, getArticleFromR2, uploadArticleImageBufferToR2 } from '../../src/server/r2Articles.ts';
 import { slugify, toSafeSlug } from '../../src/types.ts';
 import { parseArticlesCursor } from '../../src/utils/publicationsHelper.ts';
+import { parseAndValidateBase64Image, normalizeAndValidateHttpsImageUrl, sanitizeR2ArticleIdSegment } from '../../src/utils/articleImageHelper.ts';
 import { syncSingleArticle, unpublishArticleFromD1, syncPendingArticles, isD1SyncConfigured } from '../sync/d1Publisher.ts';
 
 const ALLOWED_CATEGORIES = [
@@ -338,6 +339,110 @@ export async function handleAdminCreateOrUpdateArticle(req: Request, res: Respon
   const sanitizedContent = sanitizeArticleContent(data.content);
   const excerpt = extractPlainExcerpt(sanitizedContent, 200);
   const now = new Date();
+
+  // Validate and normalize all 4 image fields before saving to DB:
+  // 1) Decode data:image/* base64 (allow only webp/jpeg/png, max 5MB) and upload to R2 under images/<articleId>/<random>.<ext>
+  // 2) Reject upload failures and any remaining non-https URL (http, javascript:, etc.) with 400
+  const safeArticleId = sanitizeR2ArticleIdSegment(articleId);
+  type PendingImageEntry =
+    | { kind: 'upload'; buffer: Buffer; mime: 'image/webp' | 'image/jpeg' | 'image/png'; ext: 'webp' | 'jpg' | 'png'; fieldName: string }
+    | { kind: 'url'; url: string };
+
+  const prepareImageField = (raw: string, fieldName: string): { ok: boolean; entry?: PendingImageEntry; error?: string } => {
+    const trimmed = String(raw || '').trim();
+    if (!trimmed) {
+      return { ok: true, entry: { kind: 'url', url: '' } };
+    }
+    if (/^data:image\//i.test(trimmed)) {
+      const parsedImg = parseAndValidateBase64Image(trimmed, fieldName);
+      if (!parsedImg.ok || !parsedImg.buffer || !parsedImg.mime || !parsedImg.ext) {
+        return { ok: false, error: parsedImg.error || `${fieldName} is invalid` };
+      }
+      return {
+        ok: true,
+        entry: {
+          kind: 'upload',
+          buffer: parsedImg.buffer,
+          mime: parsedImg.mime,
+          ext: parsedImg.ext,
+          fieldName,
+        },
+      };
+    }
+    const httpsCheck = normalizeAndValidateHttpsImageUrl(trimmed, fieldName);
+    if (!httpsCheck.ok) {
+      return { ok: false, error: httpsCheck.error || `${fieldName} must use https://` };
+    }
+    return { ok: true, entry: { kind: 'url', url: httpsCheck.url || '' } };
+  };
+
+  const resolveImageEntry = async (entry: PendingImageEntry): Promise<string> => {
+    if (entry.kind === 'url') {
+      return entry.url;
+    }
+    const randomHex = crypto.randomBytes(12).toString('hex');
+    const key = `images/${safeArticleId}/${randomHex}.${entry.ext}`;
+    const uploadedUrl = await uploadArticleImageBufferToR2(key, entry.buffer, entry.mime);
+    const urlCheck = normalizeAndValidateHttpsImageUrl(uploadedUrl, entry.fieldName);
+    if (!urlCheck.ok || !urlCheck.url) {
+      throw new Error(urlCheck.error || `Uploaded ${entry.fieldName} URL was empty or invalid`);
+    }
+    return urlCheck.url;
+  };
+
+  const preparedPrimary = prepareImageField(data.imageUrl, 'image_url');
+  if (!preparedPrimary.ok || !preparedPrimary.entry) {
+    return res.status(400).json({ success: false, error: preparedPrimary.error || 'Invalid image_url' });
+  }
+
+  const preparedPrimaryFallback = prepareImageField(data.imageUrlFallback, 'image_url_fallback');
+  if (!preparedPrimaryFallback.ok || !preparedPrimaryFallback.entry) {
+    return res.status(400).json({ success: false, error: preparedPrimaryFallback.error || 'Invalid image_url_fallback' });
+  }
+
+  const preparedGallery: PendingImageEntry[] = [];
+  for (let i = 0; i < data.imageUrls.length; i++) {
+    const entryRes = prepareImageField(data.imageUrls[i], `image_urls[${i}]`);
+    if (!entryRes.ok || !entryRes.entry) {
+      return res.status(400).json({ success: false, error: entryRes.error || 'Invalid image_urls entry' });
+    }
+    if (entryRes.entry.kind === 'upload' || entryRes.entry.url !== '') {
+      preparedGallery.push(entryRes.entry);
+    }
+  }
+
+  const preparedGalleryFallback: PendingImageEntry[] = [];
+  for (let i = 0; i < data.imageUrlsFallback.length; i++) {
+    const entryRes = prepareImageField(data.imageUrlsFallback[i], `image_urls_fallback[${i}]`);
+    if (!entryRes.ok || !entryRes.entry) {
+      return res.status(400).json({ success: false, error: entryRes.error || 'Invalid image_urls_fallback entry' });
+    }
+    if (entryRes.entry.kind === 'upload' || entryRes.entry.url !== '') {
+      preparedGalleryFallback.push(entryRes.entry);
+    }
+  }
+
+  try {
+    data.imageUrl = await resolveImageEntry(preparedPrimary.entry);
+    data.imageUrlFallback = await resolveImageEntry(preparedPrimaryFallback.entry);
+
+    const resolvedImageUrls: string[] = [];
+    for (const entry of preparedGallery) {
+      resolvedImageUrls.push(await resolveImageEntry(entry));
+    }
+    data.imageUrls = resolvedImageUrls;
+
+    const resolvedImageUrlsFallback: string[] = [];
+    for (const entry of preparedGalleryFallback) {
+      resolvedImageUrlsFallback.push(await resolveImageEntry(entry));
+    }
+    data.imageUrlsFallback = resolvedImageUrlsFallback;
+  } catch (imgUploadErr: any) {
+    return res.status(400).json({
+      success: false,
+      error: imgUploadErr?.message || 'Failed to upload image to R2 storage',
+    });
+  }
 
   let neonArticle: any = null;
   let syncError: string | null = null;

@@ -471,6 +471,60 @@ export async function uploadBase64ImageToR2(base64DataUrl: string, key: string):
 }
 
 /**
+ * Uploads an already-validated image Buffer to the existing Cloudflare R2 bucket using
+ * the existing R2 S3 client (or REST API token fallback) and returns its https:// URL
+ * built from process.env.R2_PUBLIC_DOMAIN. Throws on failure so callers return 400.
+ */
+export async function uploadArticleImageBufferToR2(
+  key: string,
+  buffer: Buffer,
+  contentType: string
+): Promise<string> {
+  const client = getR2Client();
+  const bucket = getR2BucketName();
+  const cacheControl = 'public, max-age=31536000, s-maxage=31536000, immutable';
+
+  let uploadedToCloud = false;
+  let lastErrorMessage = '';
+
+  if (client) {
+    try {
+      await client.send(
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: key,
+          Body: buffer,
+          ContentType: contentType,
+          CacheControl: cacheControl,
+        })
+      );
+      uploadedToCloud = true;
+    } catch (s3Err: any) {
+      lastErrorMessage = s3Err?.message || String(s3Err);
+      console.warn(`[R2 Article Image] S3 PutObject failed for ${key}:`, lastErrorMessage);
+    }
+  }
+
+  if (!uploadedToCloud) {
+    uploadedToCloud = await r2RestPut(key, buffer, contentType, cacheControl);
+  }
+
+  if (!uploadedToCloud) {
+    const creds = getR2Credentials();
+    if (!creds.isS3Valid && !(creds.accountId && creds.apiToken)) {
+      throw new Error('Image upload failed: Cloudflare R2 storage is not configured');
+    }
+    throw new Error(
+      `Image upload failed: Could not upload image to Cloudflare R2${lastErrorMessage ? ` (${lastErrorMessage})` : ''}`
+    );
+  }
+
+  const publicBase = getPublicBase();
+  const cleanKey = key.replace(/^\/+/, '');
+  return `${publicBase}/${cleanKey}`;
+}
+
+/**
  * Scans imageUrl, imageUrlFallback, imageUrls, imageUrlsFallback, and <img src="data:..."> in content.
  * For every base64 image found, decodes it, uploads to R2 as img/{postId}-{n}.webp,
  * and replaces the inline string with https://media.currentnews.blog/img/{postId}-{n}.webp.

@@ -16,6 +16,12 @@ import {
 } from './publicationsHelper';
 import { classifyFcmError } from './pushErrorHelper';
 import { isValidPenName, normalizePenNameInput, resolveDraftAuthorName } from './penNameHelper';
+import {
+  MAX_ARTICLE_IMAGE_BYTES,
+  normalizeAndValidateHttpsImageUrl,
+  parseAndValidateBase64Image,
+  sanitizeR2ArticleIdSegment,
+} from './articleImageHelper';
 import type { Post } from '../types';
 
 function createMemoryStorage() {
@@ -200,4 +206,49 @@ test('penNameHelper validates pen names and resolves writer/admin authors cleanl
     }),
     'Field Correspondent'
   );
+});
+
+test('articleImageHelper validates allowed data:image MIMEs, 5MB cap, SVG rejection, and https URLs', () => {
+  assert.equal(sanitizeR2ArticleIdSegment('../evil/id'), '___evil_id');
+  assert.equal(sanitizeR2ArticleIdSegment('post_1715000000_ab12'), 'post_1715000000_ab12');
+
+  const tinyPngB64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  const validPng = parseAndValidateBase64Image(`data:image/png;base64,${tinyPngB64}`, 'image_url');
+  assert.equal(validPng.ok, true);
+  if (validPng.ok) {
+    assert.equal(validPng.mime, 'image/png');
+    assert.equal(validPng.ext, 'png');
+    assert.ok(validPng.buffer.length > 0);
+  }
+
+  const validJpeg = parseAndValidateBase64Image(`data:image/jpeg;base64,${Buffer.from('jpegdata').toString('base64')}`, 'image_url');
+  assert.equal(validJpeg.ok, true);
+  if (validJpeg.ok) assert.equal(validJpeg.ext, 'jpg');
+
+  const validWebp = parseAndValidateBase64Image(`data:image/webp;base64,${Buffer.from('webpdata').toString('base64')}`, 'image_url');
+  assert.equal(validWebp.ok, true);
+  if (validWebp.ok) assert.equal(validWebp.ext, 'webp');
+
+  const svgRejected = parseAndValidateBase64Image(`data:image/svg+xml;base64,${Buffer.from('<svg></svg>').toString('base64')}`, 'image_url');
+  assert.equal(svgRejected.ok, false);
+
+  const gifRejected = parseAndValidateBase64Image(`data:image/gif;base64,${Buffer.from('GIF89a').toString('base64')}`, 'image_url');
+  assert.equal(gifRejected.ok, false);
+
+  const disguisedSvg = parseAndValidateBase64Image(`data:image/png;base64,${Buffer.from('<svg onload=alert(1)>').toString('base64')}`, 'image_url');
+  assert.equal(disguisedSvg.ok, false);
+
+  const oversizedBuf = Buffer.alloc(MAX_ARTICLE_IMAGE_BYTES + 1, 1);
+  const tooBig = parseAndValidateBase64Image(`data:image/jpeg;base64,${oversizedBuf.toString('base64')}`, 'image_url');
+  assert.equal(tooBig.ok, false);
+
+  assert.deepEqual(normalizeAndValidateHttpsImageUrl(''), { ok: true, url: '' });
+  assert.deepEqual(normalizeAndValidateHttpsImageUrl('https://media.currentnews.blog/images/1/abc.webp', 'image_url'), {
+    ok: true,
+    url: 'https://media.currentnews.blog/images/1/abc.webp',
+  });
+  assert.equal(normalizeAndValidateHttpsImageUrl('http://example.com/a.jpg', 'image_url').ok, false);
+  assert.equal(normalizeAndValidateHttpsImageUrl('javascript:alert(1)', 'image_url').ok, false);
+  assert.equal(normalizeAndValidateHttpsImageUrl('data:text/html,<script>alert(1)</script>', 'image_url').ok, false);
+  assert.equal(normalizeAndValidateHttpsImageUrl('/relative/path.jpg', 'image_url').ok, false);
 });

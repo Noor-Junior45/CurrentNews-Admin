@@ -42,3 +42,4 @@ The following files, components, and logic structures represent the standalone B
    - `src/utils/compressedStorage.ts`: LZW-compressed client storage for zero-latency draft caching.
    - `src/utils/writers.ts`: Dynamic staff and pen name validation helpers.
    - `src/utils/penNameHelper.ts`: Pure pen name validation and writer/admin author resolution helpers backed by Neon `staff.pen_name`.
+   - `src/utils/articleImageHelper.ts`: Pure base64 image decoder/validator (webp/jpeg/png, 5 MB max) and strict HTTPS URL validator for article image fields.

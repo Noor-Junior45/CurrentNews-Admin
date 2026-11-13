@@ -322,6 +322,7 @@ All `/api/admin/*` endpoints strictly require `Authorization: Bearer <ID_TOKEN>`
 - **Rules:**
   - Writers may only update articles where `author_uid == req.user.uid`. Admins may update any.
   - `author_uid` and `author_email` are server-enforced from `req.user`.
+  - Before Neon persistence, `imageUrl`, `imageUrlFallback`, `imageUrls`, and `imageUrlsFallback` are normalized: `data:image/*` base64 strings (strictly `image/webp`, `image/jpeg`, `image/png`, max 5 MB) are uploaded to R2 under `images/<articleId>/<random>.<ext>` using `R2_PUBLIC_DOMAIN`, and any upload failure or non-`https://` URL returns `400`.
   - Neon Postgres is written first; if `status === 'published'`, dual-writes to Cloudflare R2.
 - **Response Shape (200 OK):**
   ```json

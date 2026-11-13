@@ -438,5 +438,10 @@
   - Fixed `AdminDashboardView.tsx` so server `penName` always overrides `localStorage` on load and failed saves display errors without faking success.
   - Added `src/utils/penNameHelper.ts` (`resolveDraftAuthorName`) and wired `DraftPublicationView.tsx` to load `/api/admin/pen-name`, enforcing saved pen name for non-admin writers and defaulting admins to saved pen name before `displayName`.
 
+- **Phase 62 (Pre-Save Article Image R2 Upload & Strict HTTPS Validation):** [COMPLETED]
+  - Added `src/utils/articleImageHelper.ts` to decode & validate `data:image/*` base64 images (`image/webp`, `image/jpeg`, `image/png` only, max 5 MB, SVG/HTML smuggling blocked) and enforce strict `https://` URLs.
+  - Added `uploadArticleImageBufferToR2` in `src/server/r2Articles.ts` using existing S3/REST R2 client, bucket, and `R2_PUBLIC_DOMAIN` env var, throwing cleanly on upload errors instead of falling back to disk-only/data URIs.
+  - Wired `handleAdminCreateOrUpdateArticle` in `server/api/adminArticles.ts` to upload any `data:image/` in `imageUrl`, `imageUrlFallback`, `imageUrls`, and `imageUrlsFallback` under `images/<articleId>/<random>.<ext>`, returning `400` on upload failure or non-HTTPS URLs before saving to Neon.
+
 ## 4. Immediate Next Step
 - Admin editorial desk fully verified on Cloud Run container runtime.
