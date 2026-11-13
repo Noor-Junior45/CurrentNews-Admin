@@ -1,7 +1,6 @@
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import fs from 'fs';
 import path from 'path';
-import type { Request, Response } from 'express';
 import { cleanImageUrl } from '../utils/imageUrl.ts';
 
 let s3Client: S3Client | null = null;
@@ -113,26 +112,6 @@ async function r2RestDelete(key: string): Promise<boolean> {
   } catch (err) {
     console.debug(`[R2 REST API] DELETE notice for ${key}:`, err);
     return false;
-  }
-}
-
-async function r2RestGet(key: string): Promise<string | null> {
-  const creds = getR2Credentials();
-  if (!creds.accountId || !creds.apiToken) return null;
-  try {
-    const cfUrl = `https://api.cloudflare.com/client/v4/accounts/${creds.accountId}/r2/buckets/${creds.bucket}/objects/${key}`;
-    const res = await fetch(cfUrl, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${creds.apiToken}`,
-      },
-    });
-    if (res.ok) {
-      return await res.text();
-    }
-    return null;
-  } catch (err) {
-    return null;
   }
 }
 

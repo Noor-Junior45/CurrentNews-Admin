@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { Navigate } from 'react-router-dom';
 import { useAuthState } from '../hooks/useAuthState';
 import { auth } from '../firebase';
 import { signOut } from 'firebase/auth';
-import { ShieldAlert, LogOut, ExternalLink } from 'lucide-react';
+import { ShieldAlert, ExternalLink } from 'lucide-react';
 import { signInWithGoogleSafe } from '../utils/authHelper';
+import { clearAuthSessionHint, getAuthGuardViewState } from '../utils/authSessionHint';
 
 interface AdminAuthGuardProps {
   children: React.ReactNode;
@@ -12,17 +13,19 @@ interface AdminAuthGuardProps {
 
 export default function AdminAuthGuard({ children }: AdminAuthGuardProps): React.JSX.Element {
   const { user, loading, isAdmin } = useAuthState();
-  const navigate = useNavigate();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
 
   // Synchronously evaluate SDK current user if state update is in-flight
   const activeUser = user || auth.currentUser;
-  // Role claim check only — never an email comparison
-  const hasAdminPrivileges = isAdmin;
+  const viewState = getAuthGuardViewState({
+    loading,
+    hasUser: Boolean(activeUser),
+    hasAdminPrivileges: isAdmin,
+  });
 
-  // 1. Loading screen: only if initial SDK loading with no user session
-  if (loading && !activeUser) {
+  // 1. Loading screen: keep spinner visible until token claims hydrate
+  if (viewState === 'loading') {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] font-mono">
         <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-slate-900 dark:border-white mb-4" />
@@ -34,12 +37,12 @@ export default function AdminAuthGuard({ children }: AdminAuthGuardProps): React
   }
 
   // 2. Unauthenticated user -> Redirect to root landing page
-  if (!activeUser) {
+  if (viewState === 'unauthenticated') {
     return <Navigate to="/" replace />;
   }
 
   // 3. Authenticated user without admin or writer custom claims
-  if (!hasAdminPrivileges) {
+  if (viewState === 'unauthorized') {
     const handleGoogleRetry = async () => {
       if (isAuthenticating) return;
       setIsAuthenticating(true);
@@ -71,7 +74,7 @@ export default function AdminAuthGuard({ children }: AdminAuthGuardProps): React
           Role Assignment Required
         </h2>
         <p className="text-xs text-[#000000]/85 leading-relaxed font-sans mb-2">
-          Signed in as <strong className="text-[#006d77] font-bold">{user.email || user.uid}</strong>.
+          Signed in as <strong className="text-[#006d77] font-bold">{activeUser?.email || activeUser?.uid}</strong>.
         </p>
         <p className="text-xs text-[#000000]/80 leading-relaxed font-sans mb-6 max-w-md">
           This portal strictly registers and authorizes newsroom staff. Your account does not currently have an active <code>admin</code> or <code>writer</code> role claim assigned.
@@ -94,6 +97,7 @@ export default function AdminAuthGuard({ children }: AdminAuthGuardProps): React
 
           <button
             onClick={async () => {
+              clearAuthSessionHint();
               try {
                 await signOut(auth);
               } catch (_) {}

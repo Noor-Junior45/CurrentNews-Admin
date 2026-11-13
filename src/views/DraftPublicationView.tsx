@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthState } from '../hooks/useAuthState';
 import { api } from '../utils/api';
 import { adminFetch } from '../utils/adminFetch';
@@ -19,10 +19,6 @@ import {
   Clock, 
   Send, 
   PlusCircle, 
-  Youtube, 
-  Facebook, 
-  Share2, 
-  ArrowUpRight,
   Link2,
   Sparkles,
   TrendingUp,
@@ -97,7 +93,6 @@ export default function DraftPublicationView(): React.JSX.Element {
   const [hashtagInput, setHashtagInput] = useState('');
 
   const availableWriters = getAvailableWriters();
-  const [selectedWriter, setSelectedWriter] = useState<string>(availableWriters[0] || 'Current News');
   const [authorName, setAuthorName] = useState(user?.displayName || availableWriters[0] || 'Current News');
   const [category, setCategory] = useState('General');
   const [targetStatus, setTargetStatus] = useState<'published' | 'draft'>('published');
@@ -207,7 +202,6 @@ export default function DraftPublicationView(): React.JSX.Element {
 
           if (p.authorName) {
             setAuthorName(p.authorName);
-            setSelectedWriter(availableWriters.includes(p.authorName) ? p.authorName : 'custom');
           }
 
           const dateToDisplay = p.publishedAt || p.createdAt;
@@ -255,7 +249,6 @@ export default function DraftPublicationView(): React.JSX.Element {
     setEditingPost(null);
     setLoadedVersion(1);
     setTargetStatus('published');
-    setSelectedWriter(availableWriters[0] || 'Current News');
     setAuthorName(user?.displayName || availableWriters[0] || 'Current News');
     setPublishDate(getTodayDateString());
     setIsCustomDate(false);

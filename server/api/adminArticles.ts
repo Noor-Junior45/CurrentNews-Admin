@@ -7,6 +7,7 @@ import { adminAuth } from '../auth/firebaseAdmin.ts';
 import { verifyFirebaseTokenSafely } from '../auth/tokenVerifier.ts';
 import { saveArticleToR2, deleteArticleFromR2, getFeedFromR2, loadLocalFeed, extractPlainExcerpt, getArticleFromR2 } from '../../src/server/r2Articles.ts';
 import { slugify, toSafeSlug } from '../../src/types.ts';
+import { parseArticlesCursor } from '../../src/utils/publicationsHelper.ts';
 import { syncSingleArticle, unpublishArticleFromD1, syncPendingArticles, isD1SyncConfigured } from '../sync/d1Publisher.ts';
 
 const ALLOWED_CATEGORIES = [
@@ -744,13 +745,11 @@ export async function handleAdminGetArticles(req: Request, res: Response) {
 
       // Cursor pagination (by updated_at DESC, id DESC)
       if (cursor) {
-        try {
-          const [cursorTime, cursorId] = cursor.split('_');
-          if (cursorTime && cursorId) {
-            conditions.push(`(updated_at, id) < ($${paramIndex++}, $${paramIndex++})`);
-            params.push(new Date(parseInt(cursorTime, 10)), cursorId);
-          }
-        } catch (_) {}
+        const parsedCursor = parseArticlesCursor(cursor);
+        if (parsedCursor) {
+          conditions.push(`(updated_at, id) < ($${paramIndex++}, $${paramIndex++})`);
+          params.push(new Date(parsedCursor.updatedAtMs), parsedCursor.id);
+        }
       }
 
       const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -762,7 +761,25 @@ export async function handleAdminGetArticles(req: Request, res: Response) {
         LIMIT $${paramIndex};
       `;
 
-      const dbRes = await query(querySql, params);
+      const countsPromise = !cursor
+        ? query<{ all_count: number; published_count: number; drafts_count: number }>(
+            user.role === 'writer'
+              ? `SELECT
+                   COUNT(*) FILTER (WHERE status != 'archived')::int AS all_count,
+                   COUNT(*) FILTER (WHERE status = 'published')::int AS published_count,
+                   COUNT(*) FILTER (WHERE status = 'draft')::int AS drafts_count
+                 FROM articles
+                 WHERE author_uid = $1`
+              : `SELECT
+                   COUNT(*) FILTER (WHERE status != 'archived')::int AS all_count,
+                   COUNT(*) FILTER (WHERE status = 'published')::int AS published_count,
+                   COUNT(*) FILTER (WHERE status = 'draft')::int AS drafts_count
+                 FROM articles`,
+            user.role === 'writer' ? [user.uid] : []
+          ).catch(() => null)
+        : Promise.resolve(null);
+
+      const [dbRes, countsRes] = await Promise.all([query(querySql, params), countsPromise]);
       const rows = dbRes.rows;
       const hasMore = rows.length > limit;
       const resultRows = hasMore ? rows.slice(0, limit) : rows;
@@ -774,13 +791,22 @@ export async function handleAdminGetArticles(req: Request, res: Response) {
       }
 
       const articles = resultRows.map(mapRowToArticle);
+      const countsRow = countsRes?.rows?.[0];
+      const counts = countsRow
+        ? {
+            all: Number(countsRow.all_count || 0),
+            published: Number(countsRow.published_count || 0),
+            drafts: Number(countsRow.drafts_count || 0),
+          }
+        : undefined;
 
       return res.status(200).json({
         success: true,
         articles,
         hasMore,
         nextCursor,
-        count: articles.length
+        count: articles.length,
+        ...(counts ? { counts } : {})
       });
     } catch (err: any) {
       console.error('[Admin API] Get articles Neon error:', err?.message || err);
@@ -796,16 +822,24 @@ export async function handleAdminGetArticles(req: Request, res: Response) {
     for (const p of [...rawFeed, ...localFeed]) {
       if (p && p.id) map.set(p.id, p);
     }
-    let articles = Array.from(map.values()).map(p => ({
-      ...p,
-      syncPending: Boolean(p.syncPending),
-      syncError: p.syncError || null,
-      publishedAt: p.publishedAt || p.createdAt || null,
-    }));
+    let articles = Array.from(map.values())
+      .filter(p => (p.status || 'published') !== 'archived')
+      .map(p => ({
+        ...p,
+        syncPending: Boolean(p.syncPending),
+        syncError: p.syncError || null,
+        publishedAt: p.publishedAt || p.createdAt || null,
+      }));
 
     if (user.role === 'writer') {
       articles = articles.filter(p => p.authorId === user.uid || (p.authorEmail && p.authorEmail.toLowerCase() === (user.email || '').toLowerCase()));
     }
+
+    const fallbackCounts = {
+      all: articles.length,
+      published: articles.filter(p => (p.status || 'published') === 'published').length,
+      drafts: articles.filter(p => p.status === 'draft').length,
+    };
 
     if (statusParam) {
       articles = articles.filter(p => (p.status || 'published').toLowerCase() === statusParam);
@@ -815,6 +849,8 @@ export async function handleAdminGetArticles(req: Request, res: Response) {
       success: true,
       articles: articles.slice(0, limit),
       hasMore: articles.length > limit,
+      nextCursor: null,
+      counts: fallbackCounts,
       fallback: true
     });
   } catch (err: any) {

@@ -488,7 +488,7 @@ async function startServer() {
   app.use('/uploads', express.static(path.join(process.cwd(), 'public', 'uploads')));
 
   // Fallback image asset handler preventing SPA index.html from ever masking a missing image
-  app.get(['/assets/*.(png|jpg|jpeg|svg|webp|ico|gif)', '/*.(png|jpg|jpeg|svg|webp|ico|gif)'], (req, res, next) => {
+  app.get(['/assets/*.(png|jpg|jpeg|svg|webp|ico|gif)', '/*.(png|jpg|jpeg|svg|webp|ico|gif)'], (req, res, _next) => {
     const rawPath = req.path;
     const cleanPath = rawPath.replace(/^\//, '');
     const inDist = path.join(process.cwd(), 'dist', cleanPath);

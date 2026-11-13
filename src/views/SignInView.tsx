@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { Mail, Lock, Eye, EyeOff, LogIn } from 'lucide-react';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { Mail, Lock, Eye, EyeOff } from 'lucide-react';
 import { 
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword, 
@@ -12,6 +12,7 @@ import { signInWithGoogleSafe } from '../utils/authHelper';
 import { updateDocumentSEO } from '../utils/seo';
 import { adminFetch } from '../utils/adminFetch';
 import { CURRENT_NEWS_LOGO, handleLogoError } from '../utils/brandLogo';
+import { hasAuthSessionHint, shouldRedirectRootToAdmin } from '../utils/authSessionHint';
 
 // Display/contact label only for editorial role applications — NEVER used to grant access privileges
 const ADMIN_ACCESS_EMAIL = 'team@currentnews.blog';
@@ -36,6 +37,11 @@ const ACCESS_REQUEST_MAILTO = `mailto:${ADMIN_ACCESS_EMAIL}?subject=${ACCESS_REQ
 export default function SignInView(): React.JSX.Element {
   const navigate = useNavigate();
 
+  const shouldBypassLogin = shouldRedirectRootToAdmin({
+    hasCurrentUser: Boolean(auth.currentUser),
+    hasSessionHint: hasAuthSessionHint(),
+  });
+
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -50,22 +56,24 @@ export default function SignInView(): React.JSX.Element {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   useEffect(() => {
+    if (shouldBypassLogin) return;
     updateDocumentSEO({
       title: 'Current News — Admin Sign In',
       description: 'Secure editorial authentication portal for Current News writers and administrators.',
       canonicalPath: '/',
       robots: 'noindex, follow'
     });
-  }, []);
+  }, [shouldBypassLogin]);
 
-  // Redirect to /admin on initial load only if already authenticated session exists
+  // Fallback session check for pre-existing IndexedDB logins when no localStorage hint exists yet
   useEffect(() => {
+    if (shouldBypassLogin) return;
     let isMounted = true;
     const checkInitialSession = async () => {
       try {
         await auth.authStateReady();
         if (isMounted && auth.currentUser) {
-          await syncUserAuthState(auth.currentUser);
+          await syncUserAuthState(auth.currentUser, false);
           navigate('/admin', { replace: true });
         }
       } catch (err) {
@@ -76,7 +84,11 @@ export default function SignInView(): React.JSX.Element {
     return () => {
       isMounted = false;
     };
-  }, [navigate]);
+  }, [navigate, shouldBypassLogin]);
+
+  if (shouldBypassLogin) {
+    return <Navigate to="/admin" replace />;
+  }
 
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -122,14 +134,12 @@ export default function SignInView(): React.JSX.Element {
       }
 
       if (cred?.user) {
-        // Fast, zero-network sync of cached claims before navigation
-        await syncUserAuthState(cred.user);
-        // Persist user identity into Neon PostgreSQL users & subscribers tables
+        // Refresh claims on explicit login so newly assigned roles take effect immediately
+        await syncUserAuthState(cred.user, true);
+        // Persist user identity into Neon PostgreSQL staff table
         adminFetch('/api/admin/users/sync', {
           method: 'POST',
           body: JSON.stringify({
-            uid: cred.user.uid,
-            email: cred.user.email,
             displayName: cred.user.displayName || null,
           }),
         }).catch(() => {});
@@ -177,14 +187,12 @@ export default function SignInView(): React.JSX.Element {
     try {
       const res = await signInWithGoogleSafe();
       if (res.success && res.user) {
-        // Fast, zero-network sync of cached claims before navigation
-        await syncUserAuthState(res.user);
-        // Persist user identity into Neon PostgreSQL users & subscribers tables
+        // Refresh claims on explicit login so newly assigned roles take effect immediately
+        await syncUserAuthState(res.user, true);
+        // Persist user identity into Neon PostgreSQL staff table
         adminFetch('/api/admin/users/sync', {
           method: 'POST',
           body: JSON.stringify({
-            uid: res.user.uid,
-            email: res.user.email,
             displayName: res.user.displayName || null,
           }),
         }).catch(() => {});

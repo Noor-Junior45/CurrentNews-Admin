@@ -402,6 +402,16 @@
     2. Construct initial and collision-retry slugs in `server/api/adminArticles.ts` so they always match `/^[a-z0-9-]{1,120}$/`.
     3. Sanitize every outgoing slug through `toSafeSlug` (falling back to `toSafeSlug(row.id)`) in `server/sync/d1Publisher.ts` before calling `/internal/publish` or `/internal/bulk`.
 
+- [x] **Bug ID & Summary:** BUG-072 — Login Page Flash on Reopen (~1s Delay), Premature Guard Fallthrough, and Underscore Cursor Truncation in Publications Pagination.
+  - **Root Cause:**
+    1. On reopen after a session timeout window, `SignInView.tsx` rendered the full login form while `auth.authStateReady()` initialized and `useAuthState.ts` forced a network `getIdTokenResult(true)` refresh, causing ~1s visual login flicker before redirecting to `/admin`.
+    2. `AdminAuthGuard.tsx` only showed the loading state when `loading && !activeUser`, risking premature fallthrough to `"Role Assignment Required"` while claims hydrated, and initialized `cachedAuthState.loading` to `!auth.currentUser`.
+    3. In `server/api/adminArticles.ts`, `handleAdminGetArticles` split `cursor` using `cursor.split('_')`, truncating article IDs containing underscores (e.g., `post_1715000000000_ab12cd` -> `'post'`) and breaking incremental pagination on page 2+.
+  - **Permanent Guardrail:**
+    1. Maintain a purely visual UI routing hint (`cn_auth_session_active` via `src/utils/authSessionHint.ts`) set on valid sign-in and cleared on sign-out, account deletion, `"Login as Reader"`, or `onAuthStateChanged(null)`. `SignInView.tsx` redirects to `/admin` immediately before painting the login form when a returning session hint or `auth.currentUser` exists. Never use this hint for server or guard authorization—custom claims remain mandatory.
+    2. Keep `cachedAuthState.loading` initially `true` until Firebase resolves, read cached claims locally on session restore (`syncUserAuthState(user, false)`), and enforce `getAuthGuardViewState` so `loading === true` always renders the loading screen.
+    3. Parse article cursors exclusively via `parseArticlesCursor(cursor)` (splitting strictly on the first underscore index) and compute DB status tab totals server-side on initial page requests (`!cursor`).
+
 
 
 

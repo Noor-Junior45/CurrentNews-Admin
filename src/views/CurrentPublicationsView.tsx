@@ -1,14 +1,20 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate, useLocation, Link } from 'react-router-dom';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useLocation, Link } from 'react-router-dom';
 import { useAuthState } from '../hooks/useAuthState';
 import { auth } from '../firebase';
-import { Post, slugify } from '../types';
+import { Post } from '../types';
 import { cleanImageUrl, sanitizePostImages } from '../utils/imageUrl';
 import { getCompressedStories, removeCompressedStory, getDeletedStoryIds } from '../utils/compressedStorage';
 import { adminFetch } from '../utils/adminFetch';
 import { safeFormatDate } from '../utils/dateHelper';
 import { updateDocumentSEO } from '../utils/seo';
 import { getCanonicalPostUrl } from '../utils/shareUrl';
+import {
+  PublicationCounts,
+  mergePublicationPages,
+  applyOptimisticDeleteCount,
+  applyOptimisticUpsertCount,
+} from '../utils/publicationsHelper';
 import { 
   PlusCircle, 
   Edit3, 
@@ -17,24 +23,33 @@ import {
   CheckCircle, 
   AlertCircle, 
   X, 
-  Clock, 
   Newspaper,
   RefreshCw
 } from 'lucide-react';
 
+const PAGE_SIZE = 15;
+
 export default function CurrentPublicationsView(): React.JSX.Element {
   const { user, isAdmin } = useAuthState();
-  const navigate = useNavigate();
   const location = useLocation();
 
   const [posts, setPosts] = useState<Post[]>([]);
   const [feedLoading, setFeedLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [serverCounts, setServerCounts] = useState<PublicationCounts | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [pubListFilter, setPubListFilter] = useState<'all' | 'published' | 'drafts'>('all');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [warningMsg, setWarningMsg] = useState<string | null>((location.state as any)?.warning || null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  const activeFetchSeqRef = useRef(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const loadingMoreRef = useRef(false);
 
   // Auto-dismiss timers for notifications
   const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -90,76 +105,12 @@ export default function CurrentPublicationsView(): React.JSX.Element {
     window.scrollTo({ top: 0, behavior: 'instant' });
   }, []);
 
-  const fetchAdminPosts = async () => {
-    const activeUser = user || auth.currentUser;
-    if (!activeUser) return;
-    setFeedLoading(true);
-    try {
+  const filterVisiblePosts = useCallback(
+    (items: Post[], activeUser: NonNullable<typeof user>): Post[] => {
       const deletedIds = getDeletedStoryIds();
-      const postMap = new Map<string, Post>();
-
-      // 1. Fetch from editorial source of truth (/api/admin/articles)
-      try {
-        const { ok, data: adminData, error: adminFetchErr } = await adminFetch(`/api/admin/articles?limit=50&t=${Date.now()}`);
-        if (ok && Array.isArray(adminData?.articles)) {
-          for (const p of adminData.articles) {
-            if (p && p.id && !deletedIds.has(p.id) && p.status !== 'archived') {
-              postMap.set(p.id, sanitizePostImages(p));
-            }
-          }
-        } else if (!ok && adminFetchErr) {
-          setErrorMsg(adminFetchErr);
-        }
-      } catch (adminErr) {
-        console.debug('Admin articles fetch notice:', adminErr);
-      }
-
-      // 2. Fallback to public feed if Neon is empty or during migration
-      if (postMap.size === 0) {
-        try {
-          const feedRes = await fetch(`/api/articles/feed?t=${Date.now()}`, { cache: 'no-store' });
-          if (feedRes.ok) {
-            const feedData = await feedRes.json();
-            if (Array.isArray(feedData.articles)) {
-              for (const p of feedData.articles) {
-                if (p && p.id && !deletedIds.has(p.id) && p.status !== 'archived') {
-                  postMap.set(p.id, sanitizePostImages(p));
-                }
-              }
-            }
-          }
-        } catch (feedErr) {
-          console.debug('Feed fetch notice:', feedErr);
-        }
-      }
-
-      // 3. Merge locally compressed stories (guarantees 0ms visibility after publishing)
-      try {
-        const compressed = getCompressedStories();
-        if (compressed && compressed.length > 0) {
-          for (const p of compressed) {
-            if (p && p.id && !deletedIds.has(p.id) && p.status !== 'archived') {
-              if (!postMap.has(p.id)) {
-                postMap.set(p.id, sanitizePostImages(p));
-              }
-            }
-          }
-        }
-      } catch (compErr) {
-        console.debug('Compressed cache read notice:', compErr);
-      }
-
-      const allFetched = Array.from(postMap.values()).sort((a, b) => {
-        return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
-      });
-
-      const visiblePosts = allFetched.filter(p => {
+      return items.filter((p) => {
         if (!p || !p.id || deletedIds.has(p.id) || p.status === 'archived') return false;
-
-        // All published data and drafts must be visible to admin
         if (isAdmin) return true;
-
-        // Non-admin writers see their own dispatches
         if (p.authorEmail && activeUser.email) {
           return p.authorEmail.toLowerCase() === activeUser.email.toLowerCase();
         }
@@ -172,33 +123,184 @@ export default function CurrentPublicationsView(): React.JSX.Element {
         }
         return false;
       });
-      setPosts(visiblePosts);
-    } catch (err) {
-      console.warn('Publications fetch warning:', err);
-    } finally {
-      setFeedLoading(false);
-    }
-  };
+    },
+    [isAdmin]
+  );
+
+  const fetchAdminPosts = useCallback(
+    async (options: { filter?: 'all' | 'published' | 'drafts'; cursor?: string | null; append?: boolean } = {}) => {
+      const activeUser = user || auth.currentUser;
+      if (!activeUser) return;
+
+      const filterToUse = options.filter ?? pubListFilter;
+      const append = Boolean(options.append && options.cursor);
+
+      if (append) {
+        if (loadingMoreRef.current) return;
+        loadingMoreRef.current = true;
+        setLoadingMore(true);
+      } else {
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
+        }
+        abortControllerRef.current = new AbortController();
+        setFeedLoading(true);
+        setHasMore(false);
+        setNextCursor(null);
+      }
+
+      const fetchSeq = append ? activeFetchSeqRef.current : ++activeFetchSeqRef.current;
+      const signal = abortControllerRef.current?.signal;
+
+      try {
+        const deletedIds = getDeletedStoryIds();
+        const postMap = new Map<string, Post>();
+
+        const params = new URLSearchParams({
+          limit: String(PAGE_SIZE),
+          t: String(Date.now()),
+        });
+        if (filterToUse === 'published') params.set('status', 'published');
+        else if (filterToUse === 'drafts') params.set('status', 'draft');
+        if (append && options.cursor) {
+          params.set('cursor', options.cursor);
+        }
+
+        let apiHasMore = false;
+        let apiNextCursor: string | null = null;
+        let apiCounts: PublicationCounts | null = null;
+
+        // 1. Fetch paginated batch from editorial source of truth (/api/admin/articles)
+        try {
+          const { ok, data: adminData, error: adminFetchErr } = await adminFetch(
+            `/api/admin/articles?${params.toString()}`,
+            signal ? { signal } : {}
+          );
+          if (signal?.aborted || fetchSeq !== activeFetchSeqRef.current) return;
+
+          if (ok && Array.isArray(adminData?.articles)) {
+            for (const p of adminData.articles) {
+              if (p && p.id && !deletedIds.has(p.id) && p.status !== 'archived') {
+                postMap.set(p.id, sanitizePostImages(p));
+              }
+            }
+            apiHasMore = Boolean(adminData.hasMore && adminData.nextCursor);
+            apiNextCursor = adminData.nextCursor || null;
+            if (adminData.counts && typeof adminData.counts.all === 'number') {
+              apiCounts = adminData.counts;
+            }
+          } else if (!ok && adminFetchErr) {
+            setErrorMsg(adminFetchErr);
+          }
+        } catch (adminErr: any) {
+          if (adminErr?.name === 'AbortError') return;
+          console.debug('Admin articles fetch notice:', adminErr);
+        }
+
+        // 2. Fallback to public feed only on initial load when Neon/API returned empty
+        if (!append && postMap.size === 0 && filterToUse !== 'drafts') {
+          try {
+            const feedRes = await fetch(`/api/articles/feed?t=${Date.now()}`, {
+              cache: 'no-store',
+              signal,
+            });
+            if (signal?.aborted || fetchSeq !== activeFetchSeqRef.current) return;
+            if (feedRes.ok) {
+              const feedData = await feedRes.json();
+              if (Array.isArray(feedData.articles)) {
+                for (const p of feedData.articles) {
+                  if (p && p.id && !deletedIds.has(p.id) && p.status !== 'archived') {
+                    postMap.set(p.id, sanitizePostImages(p));
+                  }
+                }
+              }
+            }
+          } catch (feedErr: any) {
+            if (feedErr?.name === 'AbortError') return;
+            console.debug('Feed fetch notice:', feedErr);
+          }
+        }
+
+        // 3. Merge locally compressed stories on initial page so newly saved stories appear at 0ms
+        if (!append) {
+          try {
+            const compressed = getCompressedStories();
+            if (compressed && compressed.length > 0) {
+              for (const p of compressed) {
+                if (p && p.id && !deletedIds.has(p.id) && p.status !== 'archived') {
+                  if (filterToUse === 'published' && p.status !== 'published') continue;
+                  if (filterToUse === 'drafts' && p.status !== 'draft') continue;
+                  if (!postMap.has(p.id)) {
+                    postMap.set(p.id, sanitizePostImages(p));
+                  }
+                }
+              }
+            }
+          } catch (compErr) {
+            console.debug('Compressed cache read notice:', compErr);
+          }
+        }
+
+        if (fetchSeq !== activeFetchSeqRef.current) return;
+
+        const batchPosts = filterVisiblePosts(Array.from(postMap.values()), activeUser);
+        setPosts((prev) => mergePublicationPages(prev, batchPosts, !append));
+        setHasMore(apiHasMore);
+        setNextCursor(apiNextCursor);
+        if (apiCounts) {
+          setServerCounts(apiCounts);
+        }
+      } catch (err: any) {
+        if (err?.name !== 'AbortError') {
+          console.warn('Publications fetch warning:', err);
+        }
+      } finally {
+        if (append) {
+          loadingMoreRef.current = false;
+          setLoadingMore(false);
+        } else if (fetchSeq === activeFetchSeqRef.current) {
+          setFeedLoading(false);
+        }
+      }
+    },
+    [user, pubListFilter, filterVisiblePosts]
+  );
 
   useEffect(() => {
     const activeUser = user || auth.currentUser;
     if (activeUser) {
-      fetchAdminPosts();
+      fetchAdminPosts({ filter: pubListFilter, append: false });
     }
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, [user, isAdmin, pubListFilter, fetchAdminPosts]);
+
+  useEffect(() => {
     const handleStoriesUpdated = (e?: any) => {
       const deletedId = e?.detail?.deletedId;
       const newPost = e?.detail?.newPost;
       if (deletedId) {
-        setPosts(prev => prev.filter(p => p.id !== deletedId));
+        setPosts((prev) => {
+          const target = prev.find((p) => p.id === deletedId);
+          if (target) {
+            setServerCounts((c) => (c ? applyOptimisticDeleteCount(c, target.status) : c));
+          }
+          return prev.filter((p) => p.id !== deletedId);
+        });
       }
       if (newPost && newPost.id && newPost.status !== 'archived') {
-        setPosts(prev => {
+        setPosts((prev) => {
+          const existing = prev.find((p) => p.id === newPost.id);
+          setServerCounts((c) => (c ? applyOptimisticUpsertCount(c, newPost.status, existing?.status || null) : c));
           const sanitized = sanitizePostImages(newPost);
-          const filtered = prev.filter(p => p.id !== newPost.id);
+          const filtered = prev.filter((p) => p.id !== newPost.id);
           return [sanitized, ...filtered];
         });
       }
-      fetchAdminPosts();
+      fetchAdminPosts({ filter: pubListFilter, append: false });
     };
     window.addEventListener('stories-updated', handleStoriesUpdated);
     window.addEventListener('storage', handleStoriesUpdated);
@@ -206,14 +308,39 @@ export default function CurrentPublicationsView(): React.JSX.Element {
       window.removeEventListener('stories-updated', handleStoriesUpdated);
       window.removeEventListener('storage', handleStoriesUpdated);
     };
-  }, [user, isAdmin]);
+  }, [pubListFilter, fetchAdminPosts]);
+
+  // Trigger automatic incremental lazy loading when bottom sentinel enters viewport
+  useEffect(() => {
+    const el = loadMoreRef.current;
+    if (!el || !hasMore || feedLoading) return;
+    if (typeof IntersectionObserver === 'undefined') return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (entry?.isIntersecting && hasMore && nextCursor && !loadingMoreRef.current) {
+          fetchAdminPosts({ filter: pubListFilter, cursor: nextCursor, append: true });
+        }
+      },
+      { rootMargin: '250px' }
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasMore, nextCursor, feedLoading, pubListFilter, fetchAdminPosts]);
 
   const handleDeletePost = async (id: string) => {
     setErrorMsg(null);
     setSuccessMsg(null);
     try {
-      // 1. Immediately update view state so counts decrease at 0ms
-      setPosts(prev => prev.filter(p => p.id !== id));
+      const targetPost = posts.find((p) => p.id === id);
+
+      // 1. Immediately update view state and counts at 0ms
+      setPosts((prev) => prev.filter((p) => p.id !== id));
+      if (targetPost) {
+        setServerCounts((c) => (c ? applyOptimisticDeleteCount(c, targetPost.status) : c));
+      }
       setDeleteConfirmId(null);
 
       // 2. Immediately remove from local compressed memory and mark tombstone
@@ -235,7 +362,7 @@ export default function CurrentPublicationsView(): React.JSX.Element {
     } catch (err: any) {
       console.error(err);
       setErrorMsg(err.message || 'Failed to delete story. Permissions check required.');
-      fetchAdminPosts();
+      fetchAdminPosts({ filter: pubListFilter, append: false });
     }
   };
 
@@ -245,7 +372,7 @@ export default function CurrentPublicationsView(): React.JSX.Element {
       const { ok, data, error } = await adminFetch('/api/admin/sync/run', { method: 'POST' });
       if (ok) {
         setSuccessMsg(`Outbox sync complete: ${data?.processed || 0} processed (${data?.succeeded || 0} succeeded, ${data?.failed || 0} failed).`);
-        await fetchAdminPosts();
+        await fetchAdminPosts({ filter: pubListFilter, append: false });
       } else {
         setErrorMsg(error || 'Failed to trigger outbox sync.');
       }
@@ -257,9 +384,9 @@ export default function CurrentPublicationsView(): React.JSX.Element {
   };
 
   const nonArchivedPosts = posts.filter(p => p && p.id && p.status !== 'archived');
-  const allCount = nonArchivedPosts.length;
-  const publishedCount = nonArchivedPosts.filter(p => p.status === 'published').length;
-  const draftsCount = nonArchivedPosts.filter(p => p.status === 'draft').length;
+  const allCount = serverCounts ? serverCounts.all : nonArchivedPosts.length;
+  const publishedCount = serverCounts ? serverCounts.published : nonArchivedPosts.filter(p => p.status === 'published').length;
+  const draftsCount = serverCounts ? serverCounts.drafts : nonArchivedPosts.filter(p => p.status === 'draft').length;
 
   const filteredPosts = nonArchivedPosts.filter(post => {
     if (pubListFilter === 'published') return post.status === 'published';
@@ -440,6 +567,8 @@ export default function CurrentPublicationsView(): React.JSX.Element {
                         <img 
                           src={cleanImageUrl(post.imageUrl)} 
                           alt={post.title} 
+                          loading="lazy"
+                          decoding="async"
                           className="w-full h-full object-cover" 
                         />
                       </div>
@@ -551,6 +680,21 @@ export default function CurrentPublicationsView(): React.JSX.Element {
                   </div>
                 </div>
               ))}
+
+              {/* Lazy-loading scroll sentinel & manual fallback trigger */}
+              {hasMore && (
+                <div ref={loadMoreRef} className="pt-2 pb-4 flex flex-col items-center justify-center">
+                  <button
+                    type="button"
+                    onClick={() => nextCursor && fetchAdminPosts({ filter: pubListFilter, cursor: nextCursor, append: true })}
+                    disabled={loadingMore}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-xs font-semibold bg-white/90 hover:bg-white dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200/90 dark:border-slate-700 shadow-2xs transition-all cursor-pointer disabled:opacity-60"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${loadingMore ? 'animate-spin' : ''}`} />
+                    <span>{loadingMore ? 'Loading more articles...' : 'Load more articles'}</span>
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>

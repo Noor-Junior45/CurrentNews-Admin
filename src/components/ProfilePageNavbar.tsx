@@ -14,8 +14,7 @@ export default function ProfilePageNavbar({
   title, 
   onBack, 
   fallbackUrl = '/admin',
-  rightAction,
-  align = 'left'
+  rightAction
 }: ProfilePageNavbarProps): React.JSX.Element {
   const navigate = useNavigate();
 

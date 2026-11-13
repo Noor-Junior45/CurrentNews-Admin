@@ -1,17 +1,9 @@
 import { useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { 
-  Scale, 
-  ShieldCheck, 
   BookOpen, 
   ChevronRight, 
-  AlertTriangle, 
-  FileText, 
-  Gavel, 
-  Ban, 
-  ArrowUp,
-  Cpu,
-  Mail
+  ArrowUp
 } from 'lucide-react';
 import ProfilePageNavbar from '../components/ProfilePageNavbar';
 import { updateDocumentSEO } from '../utils/seo';

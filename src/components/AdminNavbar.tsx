@@ -18,6 +18,7 @@ import {
   Check
 } from 'lucide-react';
 import { CURRENT_NEWS_LOGO, handleLogoError } from '../utils/brandLogo';
+import { clearAuthSessionHint } from '../utils/authSessionHint';
 
 export default function AdminNavbar(): React.JSX.Element {
   const { user } = useAuthState();
@@ -182,6 +183,7 @@ export default function AdminNavbar(): React.JSX.Element {
 
   const handleSignOut = async () => {
     setIsProfileOpen(false);
+    clearAuthSessionHint();
     try {
       await signOut(auth);
       navigate('/', { replace: true });
@@ -199,6 +201,7 @@ export default function AdminNavbar(): React.JSX.Element {
       if (auth.currentUser) {
         await deleteUser(auth.currentUser);
       }
+      clearAuthSessionHint();
       localStorage.clear();
       sessionStorage.clear();
       setActiveModal(null);

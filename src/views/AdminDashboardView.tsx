@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useAuthState } from '../hooks/useAuthState';
 import { Post } from '../types';
 import { sanitizePostImages } from '../utils/imageUrl';
@@ -22,11 +21,9 @@ import {
 
 export default function AdminDashboardView(): React.JSX.Element {
   const { user, isAdmin } = useAuthState();
-  const navigate = useNavigate();
 
   const [posts, setPosts] = useState<Post[]>([]);
   const [subscribers, setSubscribers] = useState<any[]>([]);
-  const [feedLoading, setFeedLoading] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -66,7 +63,6 @@ export default function AdminDashboardView(): React.JSX.Element {
 
   const loadData = async () => {
     if (!user) return;
-    setFeedLoading(true);
     try {
       // 0. Verify admin/writer credentials with server
       try {
@@ -142,8 +138,6 @@ export default function AdminDashboardView(): React.JSX.Element {
       if (compressed && compressed.length > 0) {
         setPosts(compressed.map(sanitizePostImages));
       }
-    } finally {
-      setFeedLoading(false);
     }
   };
 

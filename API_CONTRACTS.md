@@ -334,17 +334,19 @@ All `/api/admin/*` endpoints strictly require `Authorization: Bearer <ID_TOKEN>`
 - **Access:** Roles `admin`, `writer`
 - **Query Params:**
   - `status`: `'draft' | 'published' | 'archived'` (optional)
-  - `cursor`: string (ISO timestamp for cursor-based pagination)
+  - `cursor`: string (opaque pagination cursor `<createdAtISO>_<fullArticleId>`; parsed on first `_` to preserve IDs with underscores)
   - `limit`: number (default: 20, max: 50)
 - **Rules:**
   - Writers see only their own drafts and dispatches.
   - Admins see all newsroom dispatches.
+  - Initial page requests (`!cursor`) include aggregate `counts` scoped to the caller's visibility so incremental lazy loading keeps tab counters accurate.
 - **Response Shape (200 OK):**
   ```json
   {
     "success": true,
     "articles": [ /* Array of Post objects */ ],
-    "nextCursor": "2026-11-06T04:00:00.000Z"
+    "nextCursor": "2026-11-06T04:00:00.000Z_post_1715000000000_ab12cd",
+    "counts": { "all": 42, "published": 35, "drafts": 7 }
   }
   ```
 

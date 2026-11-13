@@ -157,7 +157,6 @@ export async function signInWithGoogleSafe(): Promise<AuthResult> {
       message.includes('internal-error')
     ) {
       const isIframe = typeof window !== 'undefined' && window.self !== window.top;
-      const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
       let errorMsg = 'Google Sign-In could not complete (auth/internal-error).';
       if (isIframe) {
         errorMsg = `Google popup communication was restricted inside this preview iframe. Please sign in using your Email & Password directly below, or open the app directly in a full browser tab.`;

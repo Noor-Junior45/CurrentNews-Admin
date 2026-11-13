@@ -3,10 +3,9 @@
 The following files, components, and logic structures represent the standalone Browser-Only Admin Editorial Portal for **admin.currentnews.blog**. They MUST NOT be rewritten, restyled, deleted, or altered without explicit instructions:
 
 1. **Admin Editorial Views (`src/views/`)**
-   - `src/views/AdminView.tsx`: Central router dispatching to dedicated sub-views via URL search param (`?focus=draft`, `?focus=publications`, `?focus=audience`, `?focus=dashboard`).
    - `src/views/AdminDashboardView.tsx`: Editorial Author Byline manager with inline pen name editing, Neon/R2 sync stats, and 5-card metric ledger (`Live Active Dispatches`, `Draft Manuscripts`, `Media Broadcasts`, `Audience Subscribers`, `Published Image`).
    - `src/views/DraftPublicationView.tsx`: Production article composer styled on a warm `#f6dfdf` canvas with full-width layout, photo attachment manager placed directly above the manuscript, responsive in-line category (with right-spaced dropdown arrow), publishing date picker button (clean date with unboxed Today indicator, and calendar logo in heading), unified Reference Link section with dedicated YouTube and official Facebook URL/embed code inputs placed above the reference links empty box and Add Hyperlink button, smart hashtags, auto-expanding title textarea, and save/publish flows.
-   - `src/views/CurrentPublicationsView.tsx`: Publications management ledger styled on a warm `#f6dfdf` canvas matching the Draft page, with unified sticky sub-navbar fused seamlessly into the main AdminNavbar (`#fbf1e5`) without any dividing horizontal line, centered 4-button pill filter & sync bar (`All`, `Published`, `Drafts`, `Retry sync`) arranged in a single unified line on phone screens and centered on tablet/laptop screens with count badges, edit shortcuts, archive/delete controls, D1 sync status indicators (`Live`, `Sync pending`, `Sync failed`), and automated auto-dismiss timer rules (4.5s for success/outbox sync, 5s for warnings, 6s for errors) with manual dismiss action.
+   - `src/views/CurrentPublicationsView.tsx`: Publications management ledger styled on a warm `#f6dfdf` canvas matching the Draft page, with unified sticky sub-navbar fused seamlessly into the main AdminNavbar (`#fbf1e5`) without any dividing horizontal line, centered 4-button pill filter & sync bar (`All`, `Published`, `Drafts`, `Retry sync`) arranged in a single unified line on phone screens and centered on tablet/laptop screens with DB-backed count badges, cursor-based incremental lazy loading (`IntersectionObserver` + load-more fallback + `loading="lazy"` images), edit shortcuts, archive/delete controls, D1 sync status indicators (`Live`, `Sync pending`, `Sync failed`), and automated auto-dismiss timer rules (4.5s for success/outbox sync, 5s for warnings, 6s for errors) with manual dismiss action.
    - `src/views/AudienceRegistryView.tsx`: Push notification broadcast console with live subscriber device counter, email testing utility, and full subscriber registry.
 
 2. **Authentication & Legal Stage (`src/views/`)**
@@ -37,6 +36,8 @@ The following files, components, and logic structures represent the standalone B
 5. **Essential Utilities**
    - `src/utils/adminFetch.ts`: Universal client-side fetch helper with automatic Firebase ID token attachment, `authStateReady()` synchronization, and token auto-refresh on 401.
    - `src/utils/authHelper.ts`: Safe popup authentication handler with cross-origin resilience.
+   - `src/utils/authSessionHint.ts`: UI-only routing hint eliminating login-page flash on session restore without trusting localStorage for authorization.
+   - `src/utils/publicationsHelper.ts`: Pure pagination cursor parser, deduplicated page merger, and optimistic tab counter updates.
    - `src/utils/imageUrl.ts`: URL sanitization guaranteeing clean HTTPS media links.
    - `src/utils/compressedStorage.ts`: LZW-compressed client storage for zero-latency draft caching.
    - `src/utils/writers.ts`: Dynamic staff and pen name validation helpers.

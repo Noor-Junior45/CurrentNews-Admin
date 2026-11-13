@@ -21,7 +21,7 @@ export interface RichTextEditorProps {
 const QuillComponent = ReactQuill as any;
 
 const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(function RichTextEditor(
-  { value, onChange, placeholder, availablePhotoCount = 0, availablePhotos = [] },
+  { value, onChange, placeholder, availablePhotos = [] },
   ref
 ) {
   const quillRef = useRef<any>(null);

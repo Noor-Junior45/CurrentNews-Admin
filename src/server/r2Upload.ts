@@ -1,8 +1,6 @@
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import type { Request, Response } from 'express';
 import crypto from 'crypto';
-import fs from 'fs';
-import path from 'path';
 
 // Lazy initialize S3 Client for Cloudflare R2
 let s3Client: S3Client | null = null;

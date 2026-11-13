@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { auth } from '../firebase';
+import { setAuthSessionHint, clearAuthSessionHint } from '../utils/authSessionHint';
 
 export interface AuthState {
   user: User | null;
@@ -17,7 +18,7 @@ export interface AuthState {
  */
 let cachedAuthState: AuthState = {
   user: auth.currentUser || null,
-  loading: !auth.currentUser,
+  loading: true,
   isAdmin: false,
   isOwnerAdmin: false,
   role: null,
@@ -33,14 +34,13 @@ function updateGlobalAuthState(newState: AuthState) {
 
 /**
  * Near-instantaneously synchronizes user claims into cachedAuthState.
- * Uses getIdTokenResult(false) for local cached token parsing to eliminate network latency,
- * guaranteeing zero UI flicker or bounce-back during login navigation.
+ * Uses getIdTokenResult(false) by default for local cached token parsing to eliminate
+ * network latency on reopen/navigation while preserving fresh claims when requested.
  */
-export async function syncUserAuthState(currentUser: User, forceRefresh = true): Promise<AuthState> {
+export async function syncUserAuthState(currentUser: User, forceRefresh = false): Promise<AuthState> {
   let role: 'admin' | 'writer' | null = null;
 
   try {
-    // Force-refresh token on login so newly assigned role claims are picked up immediately
     const tokenResult = await currentUser.getIdTokenResult(forceRefresh);
     const claimRole = (tokenResult.claims.role as 'admin' | 'writer') || null;
     if (claimRole) {
@@ -53,6 +53,8 @@ export async function syncUserAuthState(currentUser: User, forceRefresh = true):
   const isWriter = role === 'writer';
   const isOwnerAdmin = role === 'admin';
   const isAdmin = isOwnerAdmin || isWriter;
+
+  setAuthSessionHint();
 
   const nextState: AuthState = {
     user: currentUser,
@@ -71,6 +73,7 @@ if (typeof window !== 'undefined' && !isAuthInitialized) {
   isAuthInitialized = true;
   onAuthStateChanged(auth, async (currentUser) => {
     if (!currentUser) {
+      clearAuthSessionHint();
       updateGlobalAuthState({
         user: null,
         loading: false,
@@ -81,12 +84,12 @@ if (typeof window !== 'undefined' && !isAuthInitialized) {
       return;
     }
 
-    await syncUserAuthState(currentUser);
+    const syncedState = await syncUserAuthState(currentUser, false);
 
-    // Automatically record Firebase authenticated user session in database
+    // Automatically record Firebase authenticated staff session in database
     try {
       const token = await currentUser.getIdToken(false);
-      if (token && currentUser.email) {
+      if (token && currentUser.email && syncedState.isAdmin) {
         fetch('/api/users/sync', {
           method: 'POST',
           headers: {
@@ -94,8 +97,6 @@ if (typeof window !== 'undefined' && !isAuthInitialized) {
             'Authorization': `Bearer ${token}`
           },
           body: JSON.stringify({
-            uid: currentUser.uid,
-            email: currentUser.email,
             displayName: currentUser.displayName || null
           })
         }).catch(() => {});

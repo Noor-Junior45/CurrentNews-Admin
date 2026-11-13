@@ -17,11 +17,11 @@
 ├── scripts/                  # CLI tools (migrate-neon.mjs, set-role.mjs, resync-d1.mjs)
 ├── server/                   # Backend modules (api/adminArticles, auth/firebaseAdmin, db/neon, sync/d1Publisher)
 ├── src/
-│   ├── components/           # AdminNavbar, AdminAuthGuard, ProfilePageNavbar, RichTextEditor, PhotoAttachmentSection, ErrorBoundary
+│   ├── components/           # AdminNavbar, AdminAuthGuard, AdminLayout, ProfilePageNavbar, RichTextEditor, PhotoAttachmentSection, ErrorBoundary
 │   ├── hooks/                # useAuthState
-│   ├── server/               # r2Upload, r2Articles, postsApi, pushNotifications
-│   ├── utils/                # adminFetch, authHelper, imageUrl, compressedStorage, writers, api, seo
-│   ├── views/                # AdminView, AdminDashboardView, DraftPublicationView, CurrentPublicationsView, AudienceRegistryView, SignInView, PrivacyView, TermsView
+│   ├── server/               # r2Upload, r2Articles, postsApi, pushNotifications, appVersionApi, socialPreview
+│   ├── utils/                # adminFetch, authHelper, authSessionHint, brandLogo, imageUrl, compressedStorage, publicationsHelper, shareUrl, writers, api, seo
+│   ├── views/                # AdminDashboardView, DraftPublicationView, CurrentPublicationsView, AudienceRegistryView, SignInView, PrivacyView, TermsView
 │   ├── App.tsx & main.tsx
 ├── server.ts                 # Full-stack Express entry point bound to 0.0.0.0:PORT
 └── index.html                # Editorial Desk shell (PWA-free, service-worker-free)
@@ -419,6 +419,12 @@
   - Updated `server/api/adminArticles.ts` to construct slugs from `toSafeSlug(slugify(data.title)) || toSafeSlug(articleId)` with sanitized ID/retry suffixes guaranteed to match `/^[a-z0-9-]{1,120}$/`.
   - Updated `mapNeonToD1Article` in `server/sync/d1Publisher.ts` to run slugs through `toSafeSlug` (falling back to `toSafeSlug(row.id)`) before sending single or batch articles to Cloudflare Worker.
   - Verified with `npx tsc --noEmit` (0 errors), `compile_applet`, and `lint_applet`.
+
+- **Phase 59 (Zero-Flash Session Restore, Publications Lazy Loading & Unused Code Cleanup):** [COMPLETED]
+  - Eliminated ~1s login screen flash on app reopen: added UI-only session hint lifecycle (`src/utils/authSessionHint.ts`), skipped forced network token refresh on cached session restore (`syncUserAuthState(user, false)` in `useAuthState.ts`), gated `AdminAuthGuard.tsx` state via `getAuthGuardViewState` so `loading` never falls through prematurely while claims hydrate, and redirected returning sessions directly in `SignInView.tsx`.
+  - Added cursor-based incremental pagination / lazy loading (`PAGE_SIZE = 15`, `IntersectionObserver` sentinel, manual load-more button fallback, `AbortController` request cancellation, lazy thumbnail decoding, and accurate DB status tab totals) to `CurrentPublicationsView.tsx` and `src/utils/publicationsHelper.ts`.
+  - Fixed critical cursor parsing bug in `server/api/adminArticles.ts` (`parseArticlesCursor` splitting on the first underscore so underscore-containing article IDs work on page 2+) and returned `counts: { all, published, drafts }` on initial page load.
+  - Purged 13 dead/duplicate files and cleaned unused imports/variables across server and UI modules, passing `npx tsc --noEmit --noUnusedLocals --noUnusedParameters` and `6/6` `node:test` unit assertions.
 
 ## 4. Immediate Next Step
 - Admin editorial desk fully verified on Cloud Run container runtime.

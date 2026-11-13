@@ -161,7 +161,7 @@ export function cleanImageUrl(url?: string | null): string {
   formatted = formatted.replace(/\/uploads\/uploads\//gi, '/uploads/');
 
   // 3. Fix double slashes inside the path (excluding https://)
-  formatted = formatted.replace(/(https?:\/\/)|(\/+)/g, (match, protocol) => {
+  formatted = formatted.replace(/(https?:\/\/)|(\/+)/g, (_match, protocol) => {
     return protocol ? protocol : '/';
   });
 

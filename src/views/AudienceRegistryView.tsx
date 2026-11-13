@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useAuthState } from '../hooks/useAuthState';
 import { api } from '../utils/api';
 import { safeFormatDate } from '../utils/dateHelper';
@@ -24,7 +23,6 @@ import {
 
 export default function AudienceRegistryView(): React.JSX.Element {
   const { user, isAdmin } = useAuthState();
-  const navigate = useNavigate();
 
   const [pushDeviceCount, setPushDeviceCount] = useState<number | null>(null);
   const [fcmDeviceCount, setFcmDeviceCount] = useState<number | null>(null);

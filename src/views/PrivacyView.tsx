@@ -1,17 +1,8 @@
 import { useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { 
-  ShieldCheck, 
-  Lock, 
-  FileText, 
-  Globe, 
-  Database, 
-  Scale, 
   UserCheck, 
-  AlertCircle, 
-  CheckCircle2, 
   ChevronRight,
-  ExternalLink,
   BookOpen,
   ArrowUp
 } from 'lucide-react';
